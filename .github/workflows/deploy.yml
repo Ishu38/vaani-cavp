@@ -1,0 +1,112 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+  GCP_REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
+  ARTIFACT_REGISTRY: ${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/vani
+  GCE_INSTANCE: ${{ secrets.GCE_INSTANCE }}
+  GCE_ZONE: ${{ secrets.GCE_ZONE || 'us-central1-a' }}
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Authenticate to Google Cloud
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT }}
+
+      # Configure Docker for Artifact Registry
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      # Build and push server image
+      - name: Build & push server image
+        run: |
+          docker build -t ${{ env.ARTIFACT_REGISTRY }}/server:${{ github.sha }} \
+                       -t ${{ env.ARTIFACT_REGISTRY }}/server:latest \
+                       ./server
+          docker push ${{ env.ARTIFACT_REGISTRY }}/server --all-tags
+
+      # Build and push client image
+      - name: Build & push client image
+        run: |
+          docker build \
+            --build-arg VITE_API_URL=/api \
+            -t ${{ env.ARTIFACT_REGISTRY }}/client:${{ github.sha }} \
+            -t ${{ env.ARTIFACT_REGISTRY }}/client:latest \
+            ./client
+          docker push ${{ env.ARTIFACT_REGISTRY }}/client --all-tags
+
+      # Build and push engine image
+      - name: Build & push engine image
+        run: |
+          docker build -t ${{ env.ARTIFACT_REGISTRY }}/engine:${{ github.sha }} \
+                       -t ${{ env.ARTIFACT_REGISTRY }}/engine:latest \
+                       ./engine
+          docker push ${{ env.ARTIFACT_REGISTRY }}/engine --all-tags
+
+      # Deploy server to Cloud Run
+      - name: Deploy server to Cloud Run
+        run: |
+          gcloud run deploy vani-server \
+            --image ${{ env.ARTIFACT_REGISTRY }}/server:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 3001 \
+            --memory 1Gi \
+            --cpu 2 \
+            --min-instances 0 \
+            --max-instances 10 \
+            --set-env-vars "NODE_ENV=production,PORT=3001" \
+            --set-secrets "MONGO_URI=vani-mongo-uri:latest,JWT_SECRET=vani-jwt-secret:latest,ENGINE_API_KEY=vani-engine-api-key:latest,REDIS_HOST=vani-redis-host:latest"
+
+      # Deploy client to Cloud Run
+      - name: Deploy client to Cloud Run
+        run: |
+          gcloud run deploy vani-client \
+            --image ${{ env.ARTIFACT_REGISTRY }}/client:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 256Mi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 5 \
+            --set-env-vars "API_URL=https://vani-server-${{ secrets.GCP_PROJECT_HASH }}.run.app"
+
+      # Restart engine on GCE with new image
+      - name: Restart engine on GCE
+        run: |
+          gcloud compute ssh ${{ env.GCE_INSTANCE }} \
+            --zone ${{ env.GCE_ZONE }} \
+            --command "
+              docker pull ${{ env.ARTIFACT_REGISTRY }}/engine:${{ github.sha }} && \
+              docker stop vani-engine 2>/dev/null || true && \
+              docker rm vani-engine 2>/dev/null || true && \
+              docker run -d \
+                --name vani-engine \
+                --restart unless-stopped \
+                --gpus all \
+                -p 8000:8000 \
+                -v /opt/vani/uploads:/app/uploads \
+                ${{ env.ARTIFACT_REGISTRY }}/engine:${{ github.sha }}
+            "

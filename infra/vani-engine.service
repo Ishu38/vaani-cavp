@@ -1,0 +1,32 @@
+[Unit]
+Description=Vani Voice Profiling Engine (FastAPI/Uvicorn)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ishu
+Group=ishu
+WorkingDirectory=/home/ishu/contrastive-voice-profiling/engine
+EnvironmentFile=/home/ishu/contrastive-voice-profiling/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+ExecStart=/home/ishu/miniconda3/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+
+# Auto-restart on crash with increasing delay
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Graceful shutdown: SIGTERM first, SIGKILL after 30s
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Logging
+StandardOutput=append:/home/ishu/contrastive-voice-profiling/engine.log
+StandardError=append:/home/ishu/contrastive-voice-profiling/engine.log
+
+[Install]
+WantedBy=multi-user.target

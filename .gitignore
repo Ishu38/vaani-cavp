@@ -1,0 +1,31 @@
+node_modules/
+__pycache__/
+*.pyc
+.env
+.env.local
+uploads/
+dist/
+build/
+venv/
+*.egg-info/
+.DS_Store
+*.log
+.certs/
+.vercel
+
+# Datasets — live outside git (HF Datasets / object storage)
+samples/
+*.parquet
+
+# Legacy server (pre-NestJS), retained locally for reference only
+server-old/
+
+# Test artifacts
+audit_test.wav
+test.wav
+test_convert.webm
+*.webm
+
+# IDE
+.vscode/
+.idea/

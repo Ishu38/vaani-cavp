@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  server-lint:
+    name: Server Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: cd server && npm ci
+
+      - name: Build (typecheck)
+        run: cd server && npm run build
+
+  engine-lint:
+    name: Engine Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: engine/requirements.txt
+
+      - name: Install dependencies
+        run: cd engine && pip install -r requirements.txt
+
+      - name: Compile check
+        run: python -m py_compile engine/main.py
+
+  client-build:
+    name: Client Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: cd client && npm ci
+
+      - name: Build
+        run: cd client && npm run build
+
+  # ── Security Scanning ────────────────────────────────────────────────
+  security-audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Server npm audit
+      - name: Server — npm audit
+        run: |
+          cd server && npm ci
+          npm audit --audit-level=high || true
+        continue-on-error: false
+
+      # Client npm audit
+      - name: Client — npm audit
+        run: |
+          cd client && npm ci
+          npm audit --audit-level=high || true
+        continue-on-error: false
+
+      # Engine pip audit (safety)
+      - name: Engine — pip-audit
+        run: |
+          pip install pip-audit
+          cd engine && pip install -r requirements.txt
+          pip-audit -r requirements.txt --desc || true
+        continue-on-error: false
+
+  docker-security:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      # Scan server Dockerfile with Trivy
+      - name: Build server image
+        run: docker build -t vani-server:ci ./server
+
+      - name: Trivy scan — server
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'vani-server:ci'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      # Scan client Dockerfile with Trivy
+      - name: Build client image
+        run: docker build -t vani-client:ci ./client
+
+      - name: Trivy scan — client
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'vani-client:ci'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'

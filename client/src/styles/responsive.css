@@ -1,0 +1,318 @@
+/* ══════════════════════════════════════════════════════════
+   Vani Responsive Overrides
+   Overrides inline styles via classNames added to App.jsx.
+   Uses !important where needed to beat inline style specificity.
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Global resets ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+img, canvas, video, svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ════════════════════════════════════════════
+   TABLET — max-width 1024px
+   ════════════════════════════════════════════ */
+@media (max-width: 1024px) {
+
+  /* Feature grid: 2 columns */
+  .vani-feature-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Pricing grid: 2 columns */
+  .vani-pricing-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Dual grid (contrastive side-by-side): stack vertically */
+  .vani-dual-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Contact page: stack columns */
+  .vani-contact-inner {
+    grid-template-columns: 1fr !important;
+    gap: 40px !important;
+  }
+
+  /* Reduce hero inner padding */
+  .vani-app section[style] {
+    max-width: 100% !important;
+  }
+}
+
+/* ════════════════════════════════════════════
+   MOBILE — max-width 768px
+   ════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* ── Navigation ── */
+  .vani-nav-inner {
+    flex-wrap: wrap !important;
+    height: auto !important;
+    padding: 12px 0 !important;
+    gap: 8px !important;
+  }
+
+  .vani-nav-right {
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    width: 100% !important;
+  }
+
+  /* Nav: reduce padding on the nav element itself */
+  .vani-app > nav {
+    padding: 0 16px !important;
+  }
+
+  /* ── Hero section ── */
+  .vani-hero-headline {
+    font-size: 32px !important;
+    letter-spacing: -1px !important;
+    line-height: 1.15 !important;
+  }
+
+  /* Hero clay section: reduce padding */
+  .vani-app section[style*="padding"] {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  /* Hero inner container */
+  .vani-hero-headline + p {
+    font-size: 16px !important;
+  }
+
+  /* Hero decorative elements: hide on mobile */
+  .vani-app section div[style*="position: absolute"][style*="fontSize: 100"] {
+    display: none !important;
+  }
+
+  /* ── Feature grid: 1 column on mobile ── */
+  .vani-feature-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* ── Input rows: stack vertically ── */
+  .vani-input-row {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  /* ── Button rows: stack and full width ── */
+  .vani-btn-row {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .vani-btn-row button {
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  /* ── Page sections: reduce padding ── */
+  .vani-page-section {
+    padding: 32px 16px 48px !important;
+  }
+
+  /* Page titles: reduce size */
+  .vani-page-section h2 {
+    font-size: 26px !important;
+  }
+
+  .vani-page-section p {
+    font-size: 15px !important;
+  }
+
+  /* ── Pricing grid: 1 column ── */
+  .vani-pricing-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* Pricing section: reduce padding */
+  .vani-pricing-grid + div,
+  .vani-pricing-grid {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  /* ── Dual grid: already 1 col from tablet, ensure spacing ── */
+  .vani-dual-grid {
+    gap: 16px !important;
+  }
+
+  /* ── Spectrogram / canvas: full width ── */
+  .vani-app canvas {
+    width: 100% !important;
+    max-height: 200px !important;
+  }
+
+  /* ── Footer: stack items ── */
+  .vani-footer-inner {
+    flex-direction: column !important;
+    gap: 12px !important;
+    text-align: center !important;
+    align-items: center !important;
+  }
+
+  /* ── Session cards (storage page) ── */
+  .vani-page-section div[style*="justifyContent"] {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  /* ── Auth card: full width on mobile ── */
+  .vani-app div[style*="width: 420"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* ── Company / About pages: reduce padding ── */
+  .vani-app div[style*="padding: \"60px\""],
+  .vani-app div[style*="maxWidth: 800"] {
+    padding: 24px !important;
+  }
+
+  /* ── Contact section: reduce padding ── */
+  .vani-contact-inner {
+    gap: 24px !important;
+    padding: 0 !important;
+  }
+
+  /* ── General text scaling ── */
+  .vani-app h1 {
+    font-size: 28px !important;
+    letter-spacing: -0.5px !important;
+  }
+
+  .vani-app h2 {
+    font-size: 24px !important;
+  }
+
+  .vani-app h3 {
+    font-size: 18px !important;
+  }
+
+  /* ── Trusted section heading ── */
+  .vani-app section div[style*="textAlign"] h2 {
+    font-size: 22px !important;
+  }
+
+  /* ── Pipeline progress: reduce padding ── */
+  .vani-app div[style*="padding: \"32px 40px\""] {
+    padding: 20px 16px !important;
+  }
+
+  /* ── Error banner ── */
+  .vani-app div[style*="justifyContent"][style*="background: \"#fee\""] {
+    flex-direction: column !important;
+    gap: 8px !important;
+    margin: 12px !important;
+  }
+}
+
+/* ════════════════════════════════════════════
+   SMALL MOBILE — max-width 480px
+   ════════════════════════════════════════════ */
+@media (max-width: 480px) {
+
+  /* Hero headline: even smaller */
+  .vani-hero-headline {
+    font-size: 26px !important;
+    letter-spacing: -0.5px !important;
+  }
+
+  /* Nav: tighter layout */
+  .vani-nav-inner {
+    justify-content: center !important;
+    text-align: center !important;
+  }
+
+  .vani-nav-right {
+    justify-content: center !important;
+    gap: 8px !important;
+  }
+
+  .vani-nav-right button,
+  .vani-nav-right span {
+    font-size: 13px !important;
+  }
+
+  /* Feature grid: tighter cards */
+  .vani-feature-grid > div {
+    padding: 20px !important;
+  }
+
+  /* Page sections: minimal padding */
+  .vani-page-section {
+    padding: 24px 12px 36px !important;
+  }
+
+  /* All buttons: slightly smaller text */
+  .vani-btn-row button {
+    font-size: 14px !important;
+    padding: 12px 20px !important;
+  }
+
+  /* Footer text */
+  .vani-footer-inner span {
+    font-size: 12px !important;
+  }
+
+  /* Auth card padding */
+  .vani-app div[style*="padding: \"48px 40px\""] {
+    padding: 24px 16px !important;
+  }
+
+  /* Pricing cards padding */
+  .vani-pricing-grid > div {
+    padding: 28px 20px 24px !important;
+  }
+
+  /* Contact form card */
+  .vani-contact-inner div[style*="padding: \"40px 36px\""] {
+    padding: 24px 16px !important;
+  }
+
+  /* General font size */
+  .vani-app {
+    font-size: 14px !important;
+  }
+
+  /* Heading overrides */
+  .vani-app h1 {
+    font-size: 24px !important;
+  }
+
+  .vani-app h2 {
+    font-size: 20px !important;
+  }
+
+  /* Tables/session lists: make scrollable */
+  .vani-page-section > div {
+    overflow-x: auto;
+  }
+}
+
+/* ════════════════════════════════════════════
+   LANDSCAPE PHONE FIX
+   ════════════════════════════════════════════ */
+@media (max-height: 500px) and (orientation: landscape) {
+  .vani-hero-headline {
+    font-size: 28px !important;
+  }
+
+  .vani-app section {
+    padding-top: 16px !important;
+    padding-bottom: 16px !important;
+  }
+}

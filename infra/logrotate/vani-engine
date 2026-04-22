@@ -1,0 +1,12 @@
+/home/ishu/contrastive-voice-profiling/engine.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    size 50M
+    dateext
+    dateformat -%Y-%m-%d
+}
