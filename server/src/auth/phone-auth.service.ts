@@ -9,7 +9,6 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as crypto from 'crypto';
 import { User } from '../users/user.schema';
-import { UsersService } from '../users/users.service';
 
 interface OtpRecord {
   otp: string;
@@ -27,7 +26,6 @@ export class PhoneAuthService {
 
   constructor(
     @InjectModel(User.name) private userModel: Model<User>,
-    private usersService: UsersService,
     private jwtService: JwtService,
   ) {
     this.cleanupInterval = setInterval(() => this.cleanExpiredOtps(), 5 * 60 * 1000);
@@ -73,6 +71,8 @@ export class PhoneAuthService {
     const msg91Key = process.env.MSG91_AUTH_KEY;
     if (msg91Key) {
       try {
+        // Dynamic import fetch for Node compatibility
+        const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
         const resp = await fetch(`https://control.msg91.com/api/v5/flow/`, {
           method: 'POST',
           headers: {
@@ -135,14 +135,15 @@ export class PhoneAuthService {
       // Create new phone-authenticated user
       const fillerEmail = `phone_${phone.replace(/\D/g, '')}@vaani.user`;
       const fillerPassword = crypto.randomBytes(32).toString('hex');
-      user = await this.usersService.create({
+      const newUser = new this.userModel({
         name: `User${phone.slice(-4)}`,
         email: fillerEmail,
         phone,
         password: fillerPassword,
         role: 'student',
         providers: ['phone'],
-      } as any);
+      });
+      user = await newUser.save();
     } else {
       // Existing user — ensure phone provider is in providers array
       if (!user.providers.includes('phone')) {
