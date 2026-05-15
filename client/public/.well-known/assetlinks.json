@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "in.vaaani.app",
+    "sha256_cert_fingerprints": [
+      "B9:79:68:B3:F8:BC:79:C5:BD:8D:95:03:B6:20:15:1D:BD:E6:DD:BD:D4:6E:9C:F7:59:D1:54:0C:4A:75:C4:ED"
+    ]
+  }
+}]

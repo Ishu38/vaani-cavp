@@ -1,0 +1,24 @@
+# Cloudflare Pages HTTP response headers.
+# https://developers.cloudflare.com/pages/configuration/headers/
+
+/*
+  # Allow Google Sign-In popup ↔ tab postMessage. Google Identity Services
+  # uses window.postMessage to send the credential back to the page after
+  # the user picks an account in the popup. Without this header browsers
+  # apply a strict default COOP and the postMessage warning fires (and in
+  # future Chrome versions, blocks). same-origin-allow-popups is the
+  # standard Google-Sign-In requirement.
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+
+  # Don't isolate from cross-origin embeds — needed because Google's GSI
+  # iframe must still load. We're not setting COEP at all (default = unsafe-none).
+  # Listed explicitly here for clarity; remove if you ever turn on COEP.
+  Cross-Origin-Embedder-Policy: unsafe-none
+
+  # Standard hardening — these are good defaults for a static SPA. They
+  # don't affect the working flows; they only block things that shouldn't
+  # be possible anyway (clickjacking, MIME-sniffing, leaking referrers
+  # to external sites).
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: microphone=(self), camera=(), geolocation=()
