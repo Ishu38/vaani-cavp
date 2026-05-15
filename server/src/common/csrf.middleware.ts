@@ -18,12 +18,29 @@ import * as crypto from 'crypto';
  *   - Combined with sameSite: 'strict', this is belt-and-suspenders.
  *
  * Excluded paths:
- *   - /api/auth/login and /api/auth/signup (no cookie exists yet)
- *   - /api/health (no authentication needed)
+ *   - /api/auth/login, /api/auth/signup, /api/auth/logout, /api/auth/google
+ *     (no CSRF cookie exists pre-auth, and these are protected by sameSite +
+ *     password/OAuth verification on their own)
+ *   - /api/health (no auth, read-only)
+ *
+ * NOTE: state-changing /api/testprep/* routes (POST analyze/report/consent/
+ * guidance/ask) are NOT exempted — the SPA reads the vp_csrf cookie via
+ * document.cookie and sends it back in the X-CSRF-Token header. A blanket
+ * /api/testprep prefix exemption used to live here; it disabled CSRF on
+ * every state-changing testprep route (analyze/report/consent/revoke) and
+ * was removed after CodeRabbit flagged it.
  */
 const CSRF_COOKIE = 'vp_csrf';
 const CSRF_HEADER = 'x-csrf-token';
-const EXEMPT_PATHS = ['/api/auth/login', '/api/auth/signup', '/api/auth/logout', '/api/health'];
+const EXEMPT_PATHS = [
+  '/api/auth/login',
+  '/api/auth/signup',
+  '/api/auth/logout',
+  '/api/auth/google',
+  '/api/auth/phone/send',
+  '/api/auth/phone/verify',
+  '/api/health',
+];
 const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
 
 @Injectable()
@@ -33,20 +50,30 @@ export class CsrfMiddleware implements NestMiddleware {
     if (!req.cookies?.[CSRF_COOKIE]) {
       const token = crypto.randomBytes(32).toString('hex');
       const isProduction = process.env.NODE_ENV === 'production';
-      res.cookie(CSRF_COOKIE, token, {
+      // COOKIE_DOMAIN must be set in production (e.g. ".vaaani.in") so the
+      // SPA at app.vaaani.in can read this cookie via document.cookie even
+      // though it's set by api.vaaani.in. Without a parent-domain scope,
+      // browsers tie the cookie to the host that set it — meaning the
+      // double-submit pattern silently fails cross-subdomain. In dev
+      // (localhost) leave COOKIE_DOMAIN unset so the cookie is host-scoped.
+      const cookieDomain = process.env.COOKIE_DOMAIN;
+      const cookieOpts: any = {
         httpOnly: false,   // JS must be able to read this
         secure: isProduction,
-        sameSite: 'strict',
+        sameSite: 'strict' as const,
         path: '/',
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      });
+      };
+      if (cookieDomain) cookieOpts.domain = cookieDomain;
+      res.cookie(CSRF_COOKIE, token, cookieOpts);
     }
 
     // Safe methods and exempt paths skip validation
     if (SAFE_METHODS.includes(req.method)) {
       return next();
     }
-    if (EXEMPT_PATHS.some((p) => req.path.startsWith(p))) {
+    const fullPath = req.originalUrl || req.url || req.path;
+    if (EXEMPT_PATHS.some((p) => fullPath.startsWith(p))) {
       return next();
     }
 
