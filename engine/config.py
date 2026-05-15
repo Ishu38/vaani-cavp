@@ -26,11 +26,11 @@ WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "base")
 WHISPER_DEVICE: str = _detect_device()
 TORCH_DEVICE: str = WHISPER_DEVICE  # Shared device for all torch models
 
-# Use lighter spaCy model on CPU to avoid transformer overhead
-SPACY_MODEL: str = os.getenv(
-    "SPACY_MODEL",
-    "en_core_web_trf" if WHISPER_DEVICE == "cuda" else "en_core_web_sm",
-)
+# Default to sm (small) model for CPU-viable NLP. The trf (transformer) model
+# is GPU-dependent and only needed for MLAF formal grammar / research runs.
+# en_core_web_sm provides POS tags, dependency parse, constituency tree —
+# everything the FC/LR/GRA IELTS rubrics need — in ~300ms on CPU.
+SPACY_MODEL: str = os.getenv("SPACY_MODEL", "en_core_web_sm")
 
 UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR", "./uploads")).resolve()
 NLTK_DATA: Path = Path.home() / "nltk_data"

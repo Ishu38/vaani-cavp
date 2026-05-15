@@ -282,3 +282,25 @@ def analyze_phoneme_inventory(phoneme_sequence: list[str]) -> PhonemeInventory:
         consonant_clusters=clusters,
         phoneme_frequency=freq,
     )
+
+
+# ── MLAF formal grammar adapter (W1, 2026-05-06) ────────────────────────
+# Thin pass-through to engine/modules/mlaf/grammar_engine.parse_text.
+# Kept here so engine/main.py Layer 4 can import alongside the existing
+# spaCy/NLTK functions, parallel-shape, no behaviour change when MLAF is
+# disabled.
+
+def analyze_formal_grammar(text: str, model_name: str = "en_core_web_trf") -> dict[str, Any]:
+    """Run the MLAF Prolog grammar engine over the candidate transcript.
+
+    Returns a dict (already JSON-serializable) with:
+      - clauses[]: per-clause parse + violations (or skipped_reason)
+      - violations[]: aggregate of all clause violations
+      - well_formed, available, summary
+      - reason_unavailable: populated when MLAF is disabled or pyswip absent
+
+    When MLAF_ENABLED=0 (the default), this returns available=False with
+    a reason and Vaani's pipeline keeps running unchanged.
+    """
+    from modules.mlaf.grammar_engine import parse_text
+    return parse_text(text, spacy_model=model_name).to_dict()

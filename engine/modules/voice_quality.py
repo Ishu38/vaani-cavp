@@ -63,6 +63,12 @@ class VoiceQualityProfile:
     long_term_spectrum: list[float]
     overall_quality_score: float  # 0-100
     clinical_flags: list[str]
+    # Mirrors formant tracking_ok so the layman card can hide all
+    # voice-quality metrics in one check (without having to read the
+    # raw parselmouth.formants block, which the gateway does not persist
+    # into attempt.acoustic).
+    tracking_ok: bool = True
+    tracking_reason: str = ""
 
 
 def detect_nasal_segments(
@@ -308,9 +314,34 @@ def profile_voice_quality(
     )
 
     # --- Nasality ---
-    bw_f1 = formant_data.get("bandwidth_f1", 80)
-    nasality_idx = min(1.0, max(0, (bw_f1 - 80)) / 200)
+    # Old formula was (mean_bw_f1 - 80) / 200, which saturated at 1.0 on
+    # most real recordings because mean F1 bandwidth across a whole clip
+    # (silences, fricatives, burg outliers included) is routinely
+    # 200-500 Hz — well above the nasal-vowel range. Three of four
+    # 2026-05-08 eval clips reported 100 % nasality as a result.
+    #
+    # Honest signal: nasal_frame_fraction comes from a frame-level
+    # detector (detect_nasal_segments) that checks each voiced frame's
+    # F1 bandwidth AND the energy ratio in the 250-450 Hz nasal band.
+    # That fraction directly answers "what share of voiced speech was
+    # nasalised", which is exactly what the layman card reports.
     seg_info = detect_nasal_segments(audio_path)
+    bw_f1 = formant_data.get("bandwidth_f1", 80)
+    formant_tracking_ok = bool(formant_data.get("tracking_ok", True))
+    if not formant_tracking_ok:
+        # Without a usable formant trajectory we can't trust the frame-
+        # level nasal classifier either (it consults F1 bandwidth per
+        # frame). Surface 0.0 with a marker so downstream layers and the
+        # client can hide the metric instead of inventing a number.
+        nasality_idx = 0.0
+    else:
+        nasality_idx = float(seg_info["nasal_frame_fraction"])
+        # Hard cap a hair below 1.0 — even strongly nasal Indian English
+        # clips rarely exceed 60 % nasal frames; anything ≥ 0.95 almost
+        # always indicates classifier saturation rather than real
+        # pathology.
+        if nasality_idx > 0.95:
+            nasality_idx = 0.95
     nasality = NasalityProfile(
         a1_p0_diff=round(harmonics["a1_p0"], 2),
         bandwidth_f1=round(bw_f1, 2),
@@ -386,4 +417,6 @@ def profile_voice_quality(
         long_term_spectrum=[round(v, 2) for v in lts],
         overall_quality_score=round(score, 2),
         clinical_flags=flags,
+        tracking_ok=bool(formant_data.get("tracking_ok", True)),
+        tracking_reason=str(formant_data.get("tracking_reason", "")),
     )

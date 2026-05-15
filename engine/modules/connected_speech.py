@@ -99,8 +99,15 @@ def analyze_connected_speech(
     phoneme_spans: list[dict[str, Any]],
     transcript: str,
     formant_trajectories: dict[str, list[float]],
+    substitution_events: list[dict[str, Any]] | None = None,
 ) -> ConnectedSpeechResult:
-    """Analyze connected speech phenomena."""
+    """Analyze connected speech phenomena.
+
+    When substitution_events from Layer 4b are present, deletion/insertion
+    rates pull fluency down: a speaker who drops final consonants or inserts
+    epenthetic vowels has connected-speech disruptions that the assimilation
+    table alone wouldn't catch.
+    """
     words = word_timestamps or []
     assimilations: list[AssimilationEvent] = []
     elisions: list[ElisionEvent] = []
@@ -195,13 +202,23 @@ def analyze_connected_speech(
     # Word boundary clarity (inverse of connected speech ratio)
     boundary_clarity = 1.0 - cs_ratio * 0.5
 
-    # Fluency score
-    fluency = min(100.0, (
+    # Cross-layer: penalize fluency by Phase-4 disruption rate.
+    # Insertions and deletions break connected-speech flow; substitutions less so.
+    nw = substitution_events or []
+    n_total = max(1, len(phoneme_spans) or len(words))
+    n_del = sum(1 for e in nw if e.get("event_type") == "deletion")
+    n_ins = sum(1 for e in nw if e.get("event_type") == "insertion")
+    nw_disruption = (n_del + n_ins) / n_total       # 0..1
+    nw_penalty = min(40.0, nw_disruption * 100)     # cap at 40 pts
+
+    # Base fluency score from connected-speech phenomena
+    fluency_base = min(100.0, (
         cs_ratio * 30 +
         coart_index * 30 +
         (len(linkings) / max(1, total_boundaries)) * 20 +
         (len(reductions) / max(1, len(words))) * 20
     ))
+    fluency = max(0.0, fluency_base - nw_penalty)
 
     return ConnectedSpeechResult(
         assimilations=assimilations,

@@ -15,10 +15,20 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+import os
+
 # Lazy-loaded singletons
 _wav2vec_model: Any = None
 _wav2vec_processor: Any = None
+_wav2vec_phoneme_model: Any = None
+_wav2vec_phoneme_processor: Any = None
 _emotion_classifier: Any = None
+
+# eSpeak-phoneme CTC: outputs IPA-ish tokens (espeak-style transcription) which
+# matches the X-SAMPA convention used in modules.l1_targets.SubstitutionPattern.
+WAV2VEC2_PHONEME_MODEL = os.getenv(
+    "WAV2VEC2_PHONEME_MODEL", "facebook/wav2vec2-lv-60-espeak-cv-ft",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +61,96 @@ def _load_wav2vec() -> tuple[Any, Any]:
         _wav2vec_model = Wav2Vec2ForCTC.from_pretrained(model_id).to(TORCH_DEVICE)
         _wav2vec_model.eval()
     return _wav2vec_model, _wav2vec_processor
+
+
+def _load_wav2vec_phoneme() -> tuple[Any, Any]:
+    """Lazy-load the eSpeak-phoneme CTC model. Outputs X-SAMPA-compatible tokens."""
+    global _wav2vec_phoneme_model, _wav2vec_phoneme_processor
+    if _wav2vec_phoneme_model is None:
+        from config import TORCH_DEVICE
+        from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+        logger.info("Loading Wav2Vec2 phoneme model: %s on %s", WAV2VEC2_PHONEME_MODEL, TORCH_DEVICE)
+        _wav2vec_phoneme_processor = Wav2Vec2Processor.from_pretrained(WAV2VEC2_PHONEME_MODEL)
+        _wav2vec_phoneme_model = Wav2Vec2ForCTC.from_pretrained(WAV2VEC2_PHONEME_MODEL).to(TORCH_DEVICE)
+        _wav2vec_phoneme_model.eval()
+    return _wav2vec_phoneme_model, _wav2vec_phoneme_processor
+
+
+def classify_phonemes_ipa(audio_path: str | Path) -> Wav2VecResult | None:
+    """Identify phonemes (eSpeak/X-SAMPA tokens) with frame-level timestamps.
+
+    Unlike classify_phonemes() which outputs letters via wav2vec2-base-960h,
+    this uses an eSpeak-phoneme CTC head whose vocabulary contains tokens like
+    'T' (/θ/), 'D' (/ð/), 'S' (/ʃ/), 'tS' (/tʃ/), '&' (/æ/), etc. — directly
+    comparable against modules.l1_targets.SubstitutionPattern.ipa_target.
+
+    Multi-character tokens are preserved as single phoneme spans. Word
+    boundaries (encoded as '|' or space) are dropped from the span list.
+    """
+    try:
+        import torch
+        import librosa
+        from config import TORCH_DEVICE
+
+        model, processor = _load_wav2vec_phoneme()
+        y, sr = librosa.load(str(audio_path), sr=16000)
+        audio_seconds = len(y) / sr if sr else 0.0
+
+        inputs = processor(y, sampling_rate=16000, return_tensors="pt", padding=True)
+        inputs = {k: v.to(TORCH_DEVICE) for k, v in inputs.items()}
+        with torch.no_grad():
+            logits = model(**inputs).logits
+
+        probs = torch.softmax(logits, dim=-1)
+        predicted_ids = torch.argmax(logits, dim=-1)
+        transcript = processor.batch_decode(predicted_ids)[0]
+
+        ids = predicted_ids[0].tolist()
+        prob_vals = probs[0].max(dim=-1).values.tolist()
+        pad_id = processor.tokenizer.pad_token_id
+        try:
+            id_to_tok = processor.tokenizer.convert_ids_to_tokens(list(range(processor.tokenizer.vocab_size)))
+        except Exception:
+            vocab = processor.tokenizer.get_vocab()
+            id_to_tok = [None] * (max(vocab.values()) + 1)
+            for tok, idx in vocab.items():
+                id_to_tok[idx] = tok
+
+        # CTC collapse: drop blanks/repeats, then map runs of identical token-ids
+        # to (start_frame, end_frame, token, mean_confidence).
+        ms_per_frame = (audio_seconds * 1000.0) / len(ids) if ids else 0.0
+        spans: list[PhonemeSpan] = []
+        run_start = 0
+        run_id = ids[0] if ids else None
+        for i in range(1, len(ids) + 1):
+            cur = ids[i] if i < len(ids) else None
+            if cur != run_id:
+                if run_id is not None and run_id != pad_id:
+                    tok = id_to_tok[run_id] if 0 <= run_id < len(id_to_tok) else None
+                    if tok and tok not in {"|", " ", "<pad>", "<s>", "</s>", "<unk>"}:
+                        # Mean confidence over the run
+                        run_confs = prob_vals[run_start:i]
+                        mean_conf = sum(run_confs) / len(run_confs) if run_confs else 0.0
+                        spans.append(PhonemeSpan(
+                            phoneme=tok,
+                            start_ms=int(run_start * ms_per_frame),
+                            end_ms=int(i * ms_per_frame),
+                            confidence=round(mean_conf, 4),
+                        ))
+                run_start = i
+                run_id = cur
+
+        return Wav2VecResult(
+            phonemes=spans,
+            raw_transcript=transcript,
+            model_name=WAV2VEC2_PHONEME_MODEL,
+        )
+    except ImportError as exc:
+        logger.warning("Wav2Vec phoneme: ImportError during model load — %s", exc)
+        return None
+    except Exception as exc:
+        logger.warning("Wav2Vec phoneme classification failed: %s", exc)
+        return None
 
 
 def classify_phonemes(audio_path: str | Path) -> Wav2VecResult | None:
@@ -101,8 +201,8 @@ def classify_phonemes(audio_path: str | Path) -> Wav2VecResult | None:
             raw_transcript=transcript,
             model_name="facebook/wav2vec2-base-960h",
         )
-    except ImportError:
-        logger.warning("transformers/torch not installed, skipping Wav2Vec")
+    except ImportError as exc:
+        logger.warning("Wav2Vec letter CTC: ImportError during model load — %s", exc)
         return None
     except Exception as exc:
         logger.warning("Wav2Vec classification failed: %s", exc)

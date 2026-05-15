@@ -214,12 +214,74 @@ def generate_pdf_report(
             elements.append(Spacer(1, 3 * mm))
             elements.append(Image(io.BytesIO(formant_img), width=12 * cm, height=10 * cm))
 
-    # L1 interference details
-    if l1_data.get("detected_patterns"):
+    # CIF intent summary — plain-English read of the diagnosis
+    cif_data = profile.get("cif_analysis", {}) or {}
+    if cif_data.get("intent_summary"):
         elements.append(PageBreak())
-        elements.append(Paragraph(f"{l1_name} L1 Interference Patterns Detected", heading_style))
+        elements.append(Paragraph("Diagnostic Summary", heading_style))
+        elements.append(Paragraph(cif_data["intent_summary"], body_style))
+        elements.append(Spacer(1, 4 * mm))
+
+    # Fired substitution patterns (acoustic evidence + remediation drill)
+    fired = cif_data.get("fired_substitutions") or l1_data.get("fired_substitutions") or []
+    if fired:
+        elements.append(Paragraph(f"{l1_name}→English Transfer Patterns Detected", heading_style))
         elements.append(Paragraph(
-            f"These are specific patterns where your child's {l1_name} sounds are transferring into their English.",
+            f"Each row below names a specific sound transfer with acoustic evidence "
+            f"in this recording, plus a drill the teacher can run.",
+            body_style,
+        ))
+        elements.append(Spacer(1, 3 * mm))
+
+        for sub in fired[:12]:
+            target = sub.get("target", "?")
+            substitute = sub.get("likely_substitute", "?")
+            arrow = f"/{sub.get('ipa_target', target)}/ → /{sub.get('ipa_substitute', substitute)}/"
+            grade = sub.get("evidence_grade", "heuristic")
+            events = sub.get("events") or []
+
+            grade_label = {
+                "phoneme_aligned": f"phoneme-aligned ({len(events)} event{'s' if len(events) != 1 else ''})",
+                "heuristic": "acoustic-marker heuristic",
+            }.get(grade, grade)
+
+            sub_data = [
+                ["Substitution:", f"{target} → {substitute}    ({arrow})"],
+                ["Why:", sub.get("description", "")],
+                ["Acoustic evidence:", sub.get("evidence", "")],
+                ["Severity / confidence:", f"{sub.get('severity', '?')} / {sub.get('confidence', '?')}  ({grade_label})"],
+            ]
+            # Per-event timestamps when phoneme-aligned (max 6 to keep PDF compact)
+            if events:
+                ts_lines = []
+                for ev in events[:6]:
+                    start_s = (ev.get("start_ms") or 0) / 1000.0
+                    end_s = (ev.get("end_ms") or 0) / 1000.0
+                    conf = ev.get("confidence", 0)
+                    ts_lines.append(f"@{start_s:.2f}s–{end_s:.2f}s  ({ev.get('label', '')})  conf={conf}")
+                if len(events) > 6:
+                    ts_lines.append(f"… +{len(events) - 6} more event(s)")
+                sub_data.append(["Timestamps:", "\n".join(ts_lines)])
+            sub_data.append(["Drill:", sub.get("remediation", "")])
+
+            sub_table = Table(sub_data, colWidths=[110, 350])
+            sub_table.setStyle(TableStyle([
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LINEBELOW", (0, -1), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+            ]))
+            elements.append(sub_table)
+            elements.append(Spacer(1, 4 * mm))
+
+    # L1 interference acoustic markers (broader patterns: rhythm, vowel space, etc)
+    if l1_data.get("detected_patterns"):
+        elements.append(Paragraph(f"{l1_name} Acoustic Interference Markers", heading_style))
+        elements.append(Paragraph(
+            f"These are broader acoustic markers (rhythm, vowel space, intonation) "
+            f"where {l1_name} is shaping English production.",
             body_style,
         ))
         elements.append(Spacer(1, 3 * mm))
@@ -297,9 +359,37 @@ def _generate_simple_pdf(
         "",
     ]
 
+    cif = profile.get("cif_analysis", {}) or {}
+    if cif.get("intent_summary"):
+        lines.append("DIAGNOSTIC SUMMARY:")
+        lines.append(f"  {cif['intent_summary']}")
+        lines.append("")
+
     l1_fb = profile.get("l1_interference", profile.get("bhojpuri_interference", {}))
     l1_fb_name = profile.get("l1_display_name", l1_fb.get("l1_display_name", "L1"))
-    lines.append(f"{l1_fb_name.upper()} INTERFERENCE:")
+
+    fired = cif.get("fired_substitutions") or l1_fb.get("fired_substitutions") or []
+    if fired:
+        lines.append(f"{l1_fb_name.upper()}→ENGLISH TRANSFER PATTERNS:")
+        for sub in fired[:12]:
+            tgt = sub.get("target", "?")
+            sb = sub.get("likely_substitute", "?")
+            grade = sub.get("evidence_grade", "heuristic")
+            events = sub.get("events") or []
+            grade_tag = f"phoneme-aligned/{len(events)} ev" if events else "heuristic"
+            lines.append(f"  - {tgt} -> {sb}  [{sub.get('severity', '?')}/{sub.get('confidence', '?')}/{grade_tag}]")
+            lines.append(f"    Why: {sub.get('description', '')}")
+            lines.append(f"    Evidence: {sub.get('evidence', '')}")
+            for ev in events[:4]:
+                start_s = (ev.get("start_ms") or 0) / 1000.0
+                end_s = (ev.get("end_ms") or 0) / 1000.0
+                lines.append(f"      @{start_s:.2f}s-{end_s:.2f}s  {ev.get('label', '')}  conf={ev.get('confidence', 0)}")
+            if len(events) > 4:
+                lines.append(f"      … +{len(events) - 4} more event(s)")
+            lines.append(f"    Drill: {sub.get('remediation', '')}")
+        lines.append("")
+
+    lines.append(f"{l1_fb_name.upper()} ACOUSTIC MARKERS:")
     for pat in l1_fb.get("detected_patterns", []):
         lines.append(f"  - {pat.get('pattern', '')}: {pat.get('evidence', '')}")
         lines.append(f"    Practice: {pat.get('remediation', '')}")

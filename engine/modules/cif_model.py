@@ -89,7 +89,54 @@ L1_ATTRACTORS: dict[str, dict[str, tuple[float, float, float]]] = {
     },
 }
 
-DEFAULT_L1_CODE = "bho"
+DEFAULT_L1_CODE = "hin"  # Calibrated from Svarah; safer generic Indian-L2 default than niche bho
+
+
+# ── Attractor overrides (data-driven, optional) ──────────────────────────
+# scripts/fit_attractors.py writes data/attractor_overrides.json with the
+# same shape as L1_ATTRACTORS. When present, those values replace the
+# hardcoded defaults below at import time. Override file format:
+#   {
+#     "l1_attractors": {"hin": {"f1_mean": [590, 1.0, 80], ...}, ...},
+#     "l2_attractor":   {"f1_mean": [480, 1.0, 80], ...}    (optional)
+#   }
+
+def _load_attractor_overrides() -> None:
+    import json as _json
+    import os as _os
+    from pathlib import Path as _Path
+    override_path = _os.getenv("ATTRACTOR_OVERRIDES")
+    if override_path:
+        path = _Path(override_path)
+    else:
+        path = _Path(__file__).resolve().parent.parent / "data" / "attractor_overrides.json"
+    if not path.exists():
+        return
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    overrides_l1 = (data.get("l1_attractors") or {})
+    for code, feats in overrides_l1.items():
+        target = L1_ATTRACTORS.setdefault(code, {})
+        for feat, triple in feats.items():
+            try:
+                mean, weight, sigma = triple
+                target[feat] = (float(mean), float(weight), float(sigma))
+            except Exception:
+                continue
+    overrides_l2 = data.get("l2_attractor")
+    if isinstance(overrides_l2, dict):
+        for feat, triple in overrides_l2.items():
+            try:
+                mean, weight, sigma = triple
+                ATTRACTOR_L2[feat] = (float(mean), float(weight), float(sigma))
+            except Exception:
+                continue
+
+
+# Note: this runs ONCE at module import. To re-load after editing the JSON,
+# restart the engine (deploy.sh stop && deploy.sh).
 
 # English L2 attractor (what native-like English sounds like)
 ATTRACTOR_L2: dict[str, tuple[float, float, float]] = {
@@ -120,6 +167,9 @@ ATTRACTOR_L2: dict[str, tuple[float, float, float]] = {
     "coarticulation_index": (0.75, 1.0, 0.12),    # smooth coarticulation
     "cognitive_load":       (20, 0.8, 10),         # low effort
 }
+
+# Apply data-driven overrides if data/attractor_overrides.json exists.
+_load_attractor_overrides()
 
 
 # ── Feature groupings for per-dimension CII ──────────────────────────────
@@ -165,6 +215,11 @@ class CIFResult:
     state_vector: dict[str, float]
     trajectory: TrajectoryPrediction | None
     methodology: str
+    intent_summary: str = ""                                # one-line plain-English read of what the CIF is saying
+    fired_substitutions: list[dict[str, Any]] = field(default_factory=list)
+    detected_patterns: list[dict[str, Any]] = field(default_factory=list)
+    top_remediation_drills: list[str] = field(default_factory=list)
+    trajectory_unavailable_reason: str | None = None        # explanation when trajectory is None (e.g. insufficient history)
 
 
 # ── Core math ────────────────────────────────────────────────────────────
@@ -448,12 +503,55 @@ def compute_cif(
     overall_cii = float(np.average(c_arr, weights=w_arr))
 
     # ── Trajectory prediction ──
+    # Only emit a trajectory when we have ≥2 real historical CII observations
+    # for this candidate. With 0–1 observations, predict_trajectory falls back
+    # to a hardcoded population lambda + cii_inf — that produces a concrete
+    # `predicted_cii_8w` number from one measured input plus two constants,
+    # which is the same fabrication mode rev 3 stripped from the substitution
+    # surface. Same standard applies here: no measurement → no forecast.
+    # When real longitudinal data accumulates (≥2 sessions), the curve fit is
+    # evidence-driven and trajectory becomes legitimately useful.
     trajectory = None
-    if historical_ciis is not None:
+    trajectory_unavailable_reason: str | None = None
+    if historical_ciis is not None and len(historical_ciis) >= 2:
         trajectory = predict_trajectory(historical_ciis, overall_cii)
     else:
-        # Still provide a default prediction using population lambda
-        trajectory = predict_trajectory([], overall_cii)
+        n_hist = 0 if historical_ciis is None else len(historical_ciis)
+        trajectory_unavailable_reason = (
+            f"Trajectory forecast requires at least 2 prior sessions "
+            f"({n_hist} on file). It will appear automatically once a second "
+            f"session is recorded."
+        )
+
+    # ── Surface intent: pull fired substitutions + patterns from the L1 layer ──
+    # The product is "Contrastive *Acoustic* Voice Profiling": every user-facing
+    # substitution MUST be acoustically grounded (phoneme-aligned events). The
+    # L1-prior catalog predictions are no longer emitted at all — see
+    # l1_targets.py for the full rationale.
+    l1_layer = profile.get("l1_interference") or {}
+    observed_subs: list[dict[str, Any]] = list(l1_layer.get("acoustically_observed_substitutions") or [])
+    detected_pats: list[dict[str, Any]] = list(l1_layer.get("detected_patterns") or [])
+    fired_subs = observed_subs
+    top_drills: list[str] = []
+    seen_drills: set[str] = set()
+    for s in observed_subs[:6]:
+        drill = (s.get("remediation") or "").strip()
+        if drill and drill not in seen_drills:
+            top_drills.append(drill)
+            seen_drills.add(drill)
+    for p in detected_pats:
+        drill = (p.get("remediation") or "").strip()
+        if drill and drill not in seen_drills and len(top_drills) < 8:
+            top_drills.append(drill)
+            seen_drills.add(drill)
+
+    intent_summary = _build_intent_summary(
+        overall_cii=overall_cii,
+        l1_display_name=l1_display_name,
+        dimensions=dimensions,
+        fired_substitutions=fired_subs,
+        detected_patterns=detected_pats,
+    )
 
     result = CIFResult(
         overall_cii=round(overall_cii, 4),
@@ -468,10 +566,63 @@ def compute_cif(
             f"CII = d(S,A_L2) / (d(S,A_L1) + d(S,A_L2)). "
             f"Trajectory: CII(t) = CII_0 * exp(-lambda*t) + CII_inf."
         ),
+        intent_summary=intent_summary,
+        fired_substitutions=fired_subs,
+        detected_patterns=detected_pats,
+        top_remediation_drills=top_drills,
+        trajectory_unavailable_reason=trajectory_unavailable_reason,
     )
 
     # Serialize to dict
     return _serialize_cif(result)
+
+
+def _build_intent_summary(
+    overall_cii: float,
+    l1_display_name: str,
+    dimensions: list[DimensionCII],
+    fired_substitutions: list[dict[str, Any]],
+    detected_patterns: list[dict[str, Any]],
+) -> str:
+    """One-paragraph plain-English read of what the CIF analysis means.
+
+    The teacher should be able to act on this without reading the numbers:
+    severity → which dimensions are pulling toward L1 → which specific
+    substitutions to drill first.
+    """
+    severity = _classify_severity(overall_cii)
+    lead = f"{severity} L1 interference from {l1_display_name} (CII={overall_cii:.2f})."
+
+    # Which dimensions are pulling toward L1?
+    pulled = [d for d in dimensions if d.cii >= 0.45]
+    pulled.sort(key=lambda d: -d.cii)
+    if pulled:
+        dim_phrase = ", ".join(f"{d.name} (CII={d.cii:.2f})" for d in pulled[:3])
+        dim_clause = f" Pull is concentrated in: {dim_phrase}."
+    else:
+        dim_clause = " No dimension shows substantial L1 pull."
+
+    # Top fired substitutions — caller now passes acoustically-observed only.
+    top = fired_substitutions[:3]
+    if top:
+        sub_phrases = []
+        for s in top:
+            tgt = s.get("target") or s.get("ipa_target") or "?"
+            sub = s.get("likely_substitute") or s.get("ipa_substitute") or "?"
+            sub_phrases.append(f"{tgt}→{sub}")
+        sub_clause = (
+            f" Acoustically observed transfers: {', '.join(sub_phrases)}"
+            f" ({len(fired_substitutions)} total)."
+        )
+    elif detected_patterns:
+        sub_clause = (
+            f" No phoneme-aligned substitutions on this clip; {len(detected_patterns)} "
+            f"acoustic interference marker(s) detected — see detected_patterns."
+        )
+    else:
+        sub_clause = " No L1 transfer patterns detected with acoustic evidence on this clip."
+
+    return lead + dim_clause + sub_clause
 
 
 def _serialize_cif(result: CIFResult) -> dict[str, Any]:
@@ -479,6 +630,7 @@ def _serialize_cif(result: CIFResult) -> dict[str, Any]:
     return {
         "overall_cii": result.overall_cii,
         "overall_severity": result.overall_severity,
+        "intent_summary": result.intent_summary,
         "dimensions": [
             {
                 "name": d.name.capitalize(),
@@ -492,6 +644,9 @@ def _serialize_cif(result: CIFResult) -> dict[str, Any]:
             for d in result.dimensions
         ],
         "state_vector": result.state_vector,
+        "fired_substitutions": result.fired_substitutions,
+        "detected_patterns": result.detected_patterns,
+        "top_remediation_drills": result.top_remediation_drills,
         "trajectory": {
             "cii_initial": result.trajectory.cii_initial,
             "cii_residual": result.trajectory.cii_residual,
@@ -501,5 +656,6 @@ def _serialize_cif(result: CIFResult) -> dict[str, Any]:
             "weeks_to_mild": result.trajectory.weeks_to_mild,
             "confidence": result.trajectory.confidence,
         } if result.trajectory else None,
+        "trajectory_unavailable_reason": result.trajectory_unavailable_reason,
         "methodology": result.methodology,
     }
