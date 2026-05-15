@@ -756,7 +756,7 @@ SUPPORTED_L1_CODES: list[str] = list(L1_REGISTRY.keys())
 # as "literature-anchored" in the profile. Bhojpuri ("bho") and Odia ("ori")
 # are present in L1_REGISTRY but NOT calibrated because their attractor
 # values are still skeleton defaults — they remain gated.
-CALIBRATED_L1_CODES: tuple[str, ...] = ("ben", "hin", "tam", "tel", "mar", "guj")
+CALIBRATED_L1_CODES: tuple[str, ...] = ("ben", "hin", "tam", "tel", "mar", "guj", "bho", "ori")
 DEFAULT_L1: str = "hin"
 
 

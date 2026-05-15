@@ -978,7 +978,7 @@ async def health():
 # catalogs from published IPA/Phonetic studies). "bho"+"ori" remain in
 # l1_targets.py registry but are NOT exposed — their attractor values are
 # skeleton defaults. Expand this set as new profiles receive calibration.
-ALLOWED_L1 = {"auto", "ben", "hin", "tam", "tel", "mar", "guj"}
+ALLOWED_L1 = {"auto", "ben", "hin", "tam", "tel", "mar", "guj", "bho", "ori"}
 
 
 @app.post("/api/analyze", dependencies=[Depends(verify_engine_api_key)], response_model=None)
