@@ -606,32 +606,26 @@ def _run_full_pipeline(audio_path: Path, gender: str, run_opensmile: bool, run_s
     }
 
     # ── Layer 4b: MLAF Formal Grammar (W1, 2026-05-06) ─────────────
-    # Symbolic phrase-structure analysis. Skipped in acoustic-core mode
-    # because it consumes spaCy parse trees (text, not signal). The
-    # internal MLAF_ENABLED flag still applies when the layer runs.
-    if ACOUSTIC_CORE_ONLY:
-        logger.info("Layer 4b: MLAF Formal Grammar — skipped (acoustic-core mode)")
+    # Symbolic phrase-structure analysis via SWI-Prolog. Pure CPU.
+    # If SWI-Prolog is not installed, returns available=False gracefully.
+    # Feeds from spaCy parse trees (already running) — no extra cost.
+    logger.info("Layer 4b: MLAF Formal Grammar")
+    try:
+        from modules.nlp_layer import analyze_formal_grammar
+        formal = analyze_formal_grammar(transcription.text, SPACY_MODEL)
+        results["nlp"]["formal_grammar"] = formal
+        if formal.get("available"):
+            s = formal.get("summary", {})
+            logger.info("Layer 4b: %d/%d clauses parsed, %d violations %s",
+                        s.get("parsed_clauses", 0), s.get("total_clauses", 0),
+                        s.get("total_violations", 0), s.get("by_kind", {}))
+        else:
+            logger.info("Layer 4b: unavailable (%s)", formal.get("reason_unavailable"))
+    except Exception as exc:
+        logger.warning("Layer 4b MLAF formal grammar failed: %s", exc)
         results["nlp"]["formal_grammar"] = {
-            "available": False, "reason_unavailable": "skipped in acoustic-core mode",
+            "available": False, "reason_unavailable": f"runtime error: {exc}",
         }
-    else:
-        logger.info("Layer 4b: MLAF Formal Grammar")
-        try:
-            from modules.nlp_layer import analyze_formal_grammar
-            formal = analyze_formal_grammar(transcription.text, SPACY_MODEL)
-            results["nlp"]["formal_grammar"] = formal
-            if formal.get("available"):
-                s = formal.get("summary", {})
-                logger.info("Layer 4b: %d/%d clauses parsed, %d violations %s",
-                            s.get("parsed_clauses", 0), s.get("total_clauses", 0),
-                            s.get("total_violations", 0), s.get("by_kind", {}))
-            else:
-                logger.info("Layer 4b: skipped (%s)", formal.get("reason_unavailable"))
-        except Exception as exc:
-            logger.warning("Layer 4b MLAF formal grammar failed: %s", exc)
-            results["nlp"]["formal_grammar"] = {
-                "available": False, "reason_unavailable": f"runtime error: {exc}",
-            }
 
     formant_dict = to_dict(praat.formants)
     pitch_dict = to_dict(praat.pitch)
@@ -820,33 +814,28 @@ def _run_full_pipeline(audio_path: Path, gender: str, run_opensmile: bool, run_s
     results["l1_display_name"] = l1_result.get("l1_display_name", "Bhojpuri")
 
     # ── Layer 10b: Syntactic L1 Interference (MLAF port, W2) ──────
-    # Syntactic — depends on parse trees, not acoustic signal. Skipped in
-    # acoustic-core mode.
-    if ACOUSTIC_CORE_ONLY:
-        logger.info("Layer 10b: Syntactic L1 Interference — skipped (acoustic-core mode)")
+    # Pure Python, CPU-only, feeds from spaCy parse trees (already running).
+    # Detects L1-specific syntactic transfer: article drop, SOV word order,
+    # pro-drop, copula drop — all calibrated per L1 code.
+    logger.info("Layer 10b: Syntactic L1 Interference")
+    try:
+        from modules.mlaf.syntactic_l1_interference import detect_syntactic_l1_interference
+        syntactic_l1 = detect_syntactic_l1_interference(
+            text=transcription.text, l1_code=l1_code, spacy_model=SPACY_MODEL,
+        )
+        results["l1_interference_syntactic"] = syntactic_l1.to_dict()
+        if syntactic_l1.available:
+            logger.info("Layer 10b: %d syntactic violations (%s)",
+                        len(syntactic_l1.violations),
+                        ", ".join(f"{k}={v}" for k, v in
+                                  syntactic_l1.to_dict()["summary"]["by_kind"].items()) or "none")
+        else:
+            logger.info("Layer 10b: unavailable (%s)", syntactic_l1.reason_unavailable)
+    except Exception as exc:
+        logger.warning("Layer 10b syntactic L1 failed: %s", exc)
         results["l1_interference_syntactic"] = {
-            "available": False, "reason_unavailable": "skipped in acoustic-core mode",
+            "available": False, "reason_unavailable": f"runtime error: {exc}",
         }
-    else:
-        logger.info("Layer 10b: Syntactic L1 Interference")
-        try:
-            from modules.mlaf.syntactic_l1_interference import detect_syntactic_l1_interference
-            syntactic_l1 = detect_syntactic_l1_interference(
-                text=transcription.text, l1_code=l1_code, spacy_model=SPACY_MODEL,
-            )
-            results["l1_interference_syntactic"] = syntactic_l1.to_dict()
-            if syntactic_l1.available:
-                logger.info("Layer 10b: %d syntactic violations (%s)",
-                            len(syntactic_l1.violations),
-                            ", ".join(f"{k}={v}" for k, v in
-                                      syntactic_l1.to_dict()["summary"]["by_kind"].items()) or "none")
-            else:
-                logger.info("Layer 10b: skipped (%s)", syntactic_l1.reason_unavailable)
-        except Exception as exc:
-            logger.warning("Layer 10b syntactic L1 failed: %s", exc)
-            results["l1_interference_syntactic"] = {
-                "available": False, "reason_unavailable": f"runtime error: {exc}",
-            }
 
     # ── CIF Model — Contrastive Interference Index (first pass) ─────
     logger.info("Computing CIF Model (first pass)")
@@ -855,52 +844,46 @@ def _run_full_pipeline(audio_path: Path, gender: str, run_opensmile: bool, run_s
     results["cif_analysis"] = cif_result
 
     # ── Abductive Feedback Loop (W3, 2026-05-06) ───────────────────
-    # Symbolic interpretation pass over Layer 4b/10/10b verdicts. Skipped
-    # in acoustic-core mode — interpretation, not measurement, and depends
-    # on layers (4b formal grammar, 10b syntactic L1) that are themselves
-    # skipped in core-only.
-    if ACOUSTIC_CORE_ONLY:
-        logger.info("Layer 11: Abductive Feedback Loop — skipped (acoustic-core mode)")
-        results["abductive_loop"] = {
-            "available": False, "reason_unavailable": "skipped in acoustic-core mode",
-        }
-    else:
-        logger.info("Layer 11: Abductive Feedback Loop")
-        try:
-            from modules.mlaf.abductive_loop import (
-                apply_abductive_update, apply_updates_to_results, close_the_loop,
-            )
-            abduct = apply_abductive_update(
-                pipeline_results=results,
-                l1_code=l1_code,
-                l1_acoustic=results.get("l1_interference"),
-                l1_syntactic=results.get("l1_interference_syntactic"),
-                nlp_parse=(results.get("nlp") or {}).get("formal_grammar"),
-            )
-            if abduct.available and abduct.updates:
-                # Stash v1 BEFORE we mutate anything
-                results["cif_analysis_v1"] = cif_result
-                apply_updates_to_results(results, abduct.updates)
-                cif_v2 = close_the_loop(results, l1_code=l1_code)
-                if cif_v2 is not None:
-                    results["cif_analysis"] = cif_v2
-                    v1_cii = (cif_result or {}).get("overall_cii")
-                    v2_cii = cif_v2.get("overall_cii")
-                    logger.info("Layer 11: %d updates applied, CIF %s → %s",
-                                len(abduct.updates),
-                                f"{v1_cii:.3f}" if isinstance(v1_cii, (int, float)) else v1_cii,
-                                f"{v2_cii:.3f}" if isinstance(v2_cii, (int, float)) else v2_cii)
-                else:
-                    logger.warning("Layer 11: CIF v2 re-run failed; keeping v1")
-                    results.pop("cif_analysis_v1", None)
+    # Pure Python, CPU-only. Cross-validates acoustic L1 detection (Layer 10)
+    # with syntactic L1 evidence (Layer 10b) and formal grammar violations
+    # (Layer 4b). When 2+ modalities agree, confidence goes up. When they
+    # disagree, scores adjust down. This is the reliability engine.
+    logger.info("Layer 11: Abductive Feedback Loop")
+    try:
+        from modules.mlaf.abductive_loop import (
+            apply_abductive_update, apply_updates_to_results, close_the_loop,
+        )
+        abduct = apply_abductive_update(
+            pipeline_results=results,
+            l1_code=l1_code,
+            l1_acoustic=results.get("l1_interference"),
+            l1_syntactic=results.get("l1_interference_syntactic"),
+            nlp_parse=(results.get("nlp") or {}).get("formal_grammar"),
+        )
+        if abduct.available and abduct.updates:
+            # Stash v1 BEFORE we mutate anything
+            results["cif_analysis_v1"] = cif_result
+            apply_updates_to_results(results, abduct.updates)
+            cif_v2 = close_the_loop(results, l1_code=l1_code)
+            if cif_v2 is not None:
+                results["cif_analysis"] = cif_v2
+                v1_cii = (cif_result or {}).get("overall_cii")
+                v2_cii = cif_v2.get("overall_cii")
+                logger.info("Layer 11: %d updates applied, CIF %s → %s",
+                            len(abduct.updates),
+                            f"{v1_cii:.3f}" if isinstance(v1_cii, (int, float)) else v1_cii,
+                            f"{v2_cii:.3f}" if isinstance(v2_cii, (int, float)) else v2_cii)
             else:
-                logger.info("Layer 11: skipped (%s)", abduct.reason_unavailable)
-            results["abductive_loop"] = abduct.to_dict()
-        except Exception as exc:
-            logger.warning("Layer 11 abductive loop failed: %s", exc)
-            results["abductive_loop"] = {
-                "available": False, "reason_unavailable": f"runtime error: {exc}",
-            }
+                logger.warning("Layer 11: CIF v2 re-run failed; keeping v1")
+                results.pop("cif_analysis_v1", None)
+        else:
+            logger.info("Layer 11: skipped (%s)", abduct.reason_unavailable)
+        results["abductive_loop"] = abduct.to_dict()
+    except Exception as exc:
+        logger.warning("Layer 11 abductive loop failed: %s", exc)
+        results["abductive_loop"] = {
+            "available": False, "reason_unavailable": f"runtime error: {exc}",
+        }
 
     results["processing_time_ms"] = round((time.time() - t0) * 1000, 2)
     return results
@@ -944,7 +927,7 @@ async def health():
         "3_ai_classification":   {"providers": ["wav2vec2", "langdetect"], "status": "loaded"},
         "3b_audeep":             {"status": "loaded"},
         "4_nlp":                 {"model": SPACY_MODEL, "status": "loaded"},
-        "4b_mlaf_grammar":       {"status": "skipped" if ACOUSTIC_CORE_ONLY else "loaded"},
+        "4b_mlaf_grammar":       {"status": "loaded"},
         "4b_phoneme_pairing":    {"status": "loaded"},
         "5_phoneme_analysis":    {"status": "loaded"},
         "6_morpheme_boundary":   {"status": "loaded"},
@@ -952,11 +935,11 @@ async def health():
         "8_connected_speech":    {"status": "loaded"},
         "9_voice_quality":       {"status": "loaded"},
         "10_l1_interference":    {"status": "loaded"},
-        "10b_syntactic_l1":      {"status": "skipped" if ACOUSTIC_CORE_ONLY else "loaded"},
-        "11_abductive_loop":     {"status": "skipped" if ACOUSTIC_CORE_ONLY else "loaded"},
+        "10b_syntactic_l1":      {"status": "loaded"},
+        "11_abductive_loop":     {"status": "loaded"},
         "cif_model":             {"status": "loaded"},
     }
-    active = sum(1 for v in layers.values() if v["status"] in ("loaded",))
+    active = sum(1 for v in layers.values() if v["status"] == "loaded")
     skipped = sum(1 for v in layers.values() if v["status"] == "skipped")
 
     # Pipeline queue: how many callers are waiting for the semaphore
