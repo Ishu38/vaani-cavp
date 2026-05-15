@@ -12,17 +12,19 @@ jobs:
       - name: Check API gateway
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://api.vaaani.in/api/health)
-          if [ "$STATUS" = "200" ]; then
-            echo "✓ api.vaaani.in healthy ($STATUS)"
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "403" ]; then
+            echo "✓ api.vaaani.in reachable ($STATUS)"
           else
-            echo "⚠ api.vaaani.in returned $STATUS (gateway may be restarting)"
+            echo "⚠ api.vaaani.in returned $STATUS"
           fi
 
       - name: Check frontend
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://app.vaaani.in)
-          if [ "$STATUS" = "200" ]; then
-            echo "✓ app.vaaani.in healthy ($STATUS)"
+          # Cloudflare may return 403 (bot protection) to GitHub Actions runners.
+          # Any response means the site is reachable.
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "403" ]; then
+            echo "✓ app.vaaani.in reachable ($STATUS)"
           else
             echo "✗ app.vaaani.in returned $STATUS"
             exit 1
