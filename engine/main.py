@@ -948,7 +948,7 @@ async def health():
     waiting = 0
     if _pipeline_sem is not None:
         queue_depth = max(0, PIPELINE_CONCURRENCY - _pipeline_sem._value)
-        waiting = len(getattr(_pipeline_sem, '_waiters', [])) if hasattr(_pipeline_sem, '_waiters') else 0
+        waiting = len(w) if (w := getattr(_pipeline_sem, '_waiters', None)) else 0
         if _pipeline_busy_since > 0:
             busy_sec = time.monotonic() - _pipeline_busy_since
 
