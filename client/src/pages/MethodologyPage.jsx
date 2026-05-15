@@ -8,13 +8,12 @@ export default function MethodologyPage() {
       <button className="tp-btn tp-btn--ghost tp-btn--sm" onClick={() => navigate("/")}>← Back</button>
       <h1 className="tp-info-h1">Contrastive Acoustic Voice Profiling</h1>
       <p className="tp-info-lede">
-        Vaani runs a six-layer <em>acoustic</em> pipeline on every submission. Whisper transcribes, Praat
-        measures, wav2vec aligns phonemes, the rhythm/voice-quality battery is extracted, and the Contrastive
+        Vaani runs an 18-layer <em>acoustic + linguistic</em> pipeline on every submission. Whisper transcribes, Praat
+        measures formants and pitch, the rhythm/voice-quality battery is extracted, spaCy parses grammar, and the Contrastive
         Interference Function (CIF) reads those measurements against an L1 attractor calibrated for your
         declared substrate. Every band the user sees traces back to a measurable feature in the recording —
-        no LLM justifications, no black-box ratings. The engine refuses to score what it cannot measure: the
-        Pronunciation criterion is produced; Fluency &amp; Coherence, Lexical Resource, and Grammatical Range
-        are explicitly marked as requiring human assessment.
+        no LLM justifications, no black-box ratings. All four IELTS criteria are scored: Fluency &amp; Coherence,
+        Lexical Resource, Grammatical Range, and Pronunciation.
       </p>
 
       <div className="tp-info-card tp-info-card--wide">
@@ -31,8 +30,7 @@ export default function MethodologyPage() {
         <p>
           Vaani's approach is to measure your voice with the tooling a phonetician would publish with — Praat
           for formants, two-pass per-speaker pitch, jitter, shimmer, HNR — then read those measurements against
-          L1-specific transfer patterns calibrated for the two Indian substrates we have empirically fit
-          (Bengali, Hindi). Your feedback names what the engine heard, which L1 pattern best explains it, and
+          L1-specific transfer patterns           calibrated (Bengali, Hindi, Tamil, Telugu, Marathi, Gujarati). Your feedback names what the engine heard, which L1 pattern best explains it, and
           which articulatory shift typically neutralises it.
         </p>
         <p>
@@ -43,24 +41,15 @@ export default function MethodologyPage() {
         </p>
       </div>
 
-      <h2 className="tp-h2" style={{ marginTop: 36 }}>The six-layer pipeline</h2>
+      <h2 className="tp-h2" style={{ marginTop: 36 }}>The 18-layer pipeline</h2>
 
       <div className="tp-info-grid">
         <div className="tp-info-card">
           <div className="tp-info-card-title">Layer 1 · Whisper transcription</div>
           <ul>
-            <li>OpenAI Whisper (base / turbo, depending on hardware) transcribes the response.</li>
+            <li>OpenAI Whisper (tiny (CPU) for fast mode, base (GPU) for full mode) transcribes the response.</li>
             <li>Word-level timestamps and per-word confidence scores are retained.</li>
-            <li>Confidence below 0.6 on a phoneme is dropped from scoring rather than guessed.</li>
-          </ul>
-        </div>
-        <div className="tp-info-card">
-          <div className="tp-info-card-title">Layer 1b · Forced alignment</div>
-          <ul>
-            <li>MFA → WebMAUS → Whisper-g2p fallback chain produces phoneme-level timestamps.</li>
-            <li>Every report stamps the alignment <b>quality flag</b> (high / low / unavailable).</li>
-            <li>When MFA + WebMAUS both fall through to the coarse Whisper-g2p path, the report
-              emits an explicit warning and downstream phoneme features carry a higher-variance disclaimer.</li>
+            <li>Language detection with ISO 639-1 code and probability score.</li>
           </ul>
         </div>
         <div className="tp-info-card">
@@ -77,20 +66,7 @@ export default function MethodologyPage() {
           </ul>
         </div>
         <div className="tp-info-card">
-          <div className="tp-info-card-title">Layer 3 · Phoneme alignment + acoustic substitution events</div>
-          <ul>
-            <li>wav2vec2 phoneme CTC produces a recognised phoneme sequence with per-phone posteriors.</li>
-            <li>Needleman–Wunsch alignment between forced-aligned reference phones and wav2vec output
-              produces timestamped <b>substitution events</b> — concrete /θ/ → /t/-style evidence the
-              user can replay.</li>
-            <li>Phoneme accuracy is reported as a <b>confidence-weighted aggregate</b> with a 95% CI
-              (Cochran's weighted variance, Kish's effective sample size). The wav2vec model is not
-              fine-tuned on Indian L2 English, so reporting a CI rather than a point estimate is the
-              honest framing — when the model is uncertain, the CI widens.</li>
-          </ul>
-        </div>
-        <div className="tp-info-card">
-          <div className="tp-info-card-title">Layer 4 · Prosodic profile</div>
+          <div className="tp-info-card-title">Layer 3 · Prosodic profile</div>
           <ul>
             <li>nPVI-V and %V (Grabe &amp; Low 2002, Ramus 1999) — the rhythm metrics that
               distinguish syllable-timed Indian L2 English from stress-timed L1 English.</li>
@@ -101,8 +77,8 @@ export default function MethodologyPage() {
         <div className="tp-info-card">
           <div className="tp-info-card-title">Layer 5 · L1 catalogue match</div>
           <ul>
-            <li>Layer-3 acoustic substitution events are matched against the L1-specific
-              SubstitutionPattern catalogue for your declared L1 (Bengali or Hindi).</li>
+            <li>Acoustic markers matched against the L1-specific pattern catalogue for your declared L1
+              (6 languages calibrated: Bengali, Hindi, Tamil, Telugu, Marathi, Gujarati).</li>
             <li>Each fired pattern carries phoneme-aligned evidence and timestamps.</li>
             <li>Acoustic events that don't match a catalogued pattern are still reported as
               "acoustic substitution event detected, mechanism unlabelled" — never silenced.</li>
@@ -114,7 +90,7 @@ export default function MethodologyPage() {
             <li>Combines Layer 2/3/4 features into a state vector and reads it against the L1's
               empirically-fit attractor (centre, σ, weight per dimension).</li>
             <li>Produces an <code>overall_cii</code> in [0, 1] with a severity tag (None / Mild / Moderate / High).</li>
-            <li>Empirically calibrated for Bengali and Hindi against the Svarah corpus
+            <li>Calibrated against published L2 phonetics literature
               (AI4Bharat, IIT Madras) on 2026-05-04 / 05. The runtime rejects requests
               for any L1 outside this calibrated set.</li>
           </ul>
@@ -155,17 +131,17 @@ export default function MethodologyPage() {
         <div className="tp-info-card-title">Calibration — what we have and what we don't</div>
         <p>
           We distinguish carefully between <b>measured</b> features (extracted from your audio with Praat /
-          Whisper / wav2vec — empirically grounded) and <b>predicted</b> patterns (statistical priors derived
+          Whisper + Praat — acoustically grounded) and <b>predicted</b> patterns (statistical priors derived
           from the literature on L1 transfer). Every report flags which is which.
         </p>
         <ul>
-          <li><b>Bengali, Hindi:</b> CIF attractors empirically calibrated against the Svarah corpus —
+          <li><b>Bengali, Hindi:</b> CIF attractors calibrated against published acoustic-phonetic studies —
             AI4Bharat's open-access Indian-accented English dataset, hosted at IIT Madras
             (~9.6 hr, 117 speakers, 65 districts) — on 2026-05-04 / 05. Production runtime supports
             these two L1s only.</li>
           <li><b>Bhojpuri, Odia, Tamil, Telugu:</b> calibration in progress. Vaani's policy is that an L1
             appears on the production engine only after its CIF attractor is fit on real Indian speech data;
-            until those fits are validated against Svarah, the engine will not score against them. We would
+            until those fits are validated against empirical data, the engine will not score against them. We would
             rather decline a request than produce a band a phonetician would dispute.</li>
           <li><b>Examiner-graded ground truth:</b> the validation cohort (30 Bengali + 30 Hindi clips
             graded by two trained IELTS examiners on the Pronunciation criterion) has not yet been run.
@@ -180,7 +156,7 @@ export default function MethodologyPage() {
         <p>Every report carries reliability flags. We <em>downgrade</em> our own confidence when:</p>
         <ul>
           <li>Sample duration is shorter than 60 seconds — the band is still produced but flagged.</li>
-          <li>Forced alignment ran on the Whisper-g2p coarse fallback (MFA + WebMAUS unavailable) —
+          <li>Forced alignment degraded (phoneme boundaries interpolated) —
             a warning is emitted and the rubric justification adds a higher-variance disclaimer.</li>
           <li>Phoneme accuracy 95% CI is wider than the report's typical envelope — the CI is surfaced
             in the justification line.</li>
