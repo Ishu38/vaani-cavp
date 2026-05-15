@@ -48,10 +48,21 @@ services:
       - FASTAPI_URL=http://host.docker.internal:8000
       - JWT_SECRET=${JWT_SECRET}
       - ENGINE_API_KEY=${ENGINE_API_KEY}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost,http://localhost:5173}
       - NODE_ENV=production
       - PORT=3001
       - UPLOAD_DIR=/app/uploads
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-noop}
+      - EMAIL_FROM=${EMAIL_FROM:-Vaani <hello@vaaani.in>}
+      - EMAIL_REPLY_TO=${EMAIL_REPLY_TO:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_BUCKET=${R2_BUCKET:-}
+      - R2_PUBLIC_BASE=${R2_PUBLIC_BASE:-}
+      - COOKIE_DOMAIN=${COOKIE_DOMAIN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

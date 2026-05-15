@@ -5,6 +5,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { existsSync } from 'fs';
+import { join } from 'path';
 
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -13,8 +16,11 @@ import { ProfilesModule } from './profiles/profiles.module';
 import { ConsentModule } from './consent/consent.module';
 import { AuditModule } from './audit/audit.module';
 import { PrivacyModule } from './privacy/privacy.module';
-import { SubscriptionModule } from './subscription/subscription.module';
 import { ClassesModule } from './classes/classes.module';
+import { TestPrepModule } from './testprep/testprep.module';
+import { EmailModule } from './email/email.module';
+import { StorageModule } from './storage/storage.module';
+import { AttemptsModule } from './attempts/attempts.module';
 import { HealthController } from './common/health.controller';
 import { ReportController } from './common/report.controller';
 import { CsrfMiddleware } from './common/csrf.middleware';
@@ -53,6 +59,20 @@ import { CsrfMiddleware } from './common/csrf.middleware';
     // Rate limiting — 60 requests per minute per IP
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
 
+    // Serve the built React client from NestJS so backend + frontend
+    // share a single origin in production.  All /api/* routes still hit
+    // our controllers; any other path falls through to index.html (SPA).
+    ...(existsSync(join(__dirname, '..', '..', 'client', 'dist', 'index.html'))
+      ? [ServeStaticModule.forRoot({
+          rootPath: join(__dirname, '..', '..', 'client', 'dist'),
+          exclude: ['/api/{*path}'],
+          serveStaticOptions: {
+            index: ['index.html'],
+            fallthrough: true,
+          },
+        })]
+      : []),
+
     // Feature modules
     AuthModule,
     UsersModule,
@@ -61,8 +81,11 @@ import { CsrfMiddleware } from './common/csrf.middleware';
     ConsentModule,
     AuditModule,
     PrivacyModule,
-    SubscriptionModule,
     ClassesModule,
+    TestPrepModule,
+    EmailModule,
+    StorageModule,
+    AttemptsModule,
   ],
   controllers: [HealthController, ReportController],
   providers: [

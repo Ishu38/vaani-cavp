@@ -19,9 +19,7 @@ import { Throttle } from '@nestjs/throttler';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { RolesGuard } from '../auth/roles.guard';
-import { TierGuard } from '../subscription/tier.guard';
 import { AnalysisThrottleGuard } from './analysis-throttle.guard';
-import { SubscriptionService } from '../subscription/subscription.service';
 import { AnalysisService } from './analysis.service';
 import { ConsentService } from '../consent/consent.service';
 import { AuditService } from '../audit/audit.service';
@@ -56,11 +54,10 @@ export class AnalysisController {
     private analysis: AnalysisService,
     private consent: ConsentService,
     private audit: AuditService,
-    private subscription: SubscriptionService,
   ) {}
 
   @Post('submit')
-  @UseGuards(TierGuard, AnalysisThrottleGuard)
+  @UseGuards(AnalysisThrottleGuard)
   @Throttle({ default: { limit: 20, ttl: 300000 } })
   @ApiOperation({ summary: 'Submit a single audio file for analysis (returns job ID)' })
   @ApiConsumes('multipart/form-data')
@@ -96,9 +93,6 @@ export class AnalysisController {
       l1Language: dto.l1Language,
     });
 
-    // Increment usage counter after successful submission
-    await this.subscription.incrementUsage(req.user.schoolId);
-
     this.audit.log('analysis_run', req.user.userId, req.user.email, {
       targetId: result.jobId,
       targetType: 'analysis',
@@ -109,7 +103,7 @@ export class AnalysisController {
   }
 
   @Post('batch')
-  @UseGuards(TierGuard, AnalysisThrottleGuard)
+  @UseGuards(AnalysisThrottleGuard)
   @Throttle({ default: { limit: 5, ttl: 300000 } })
   @ApiOperation({ summary: 'Submit up to 10 audio files for batch analysis (returns job IDs)' })
   @ApiConsumes('multipart/form-data')
@@ -151,9 +145,6 @@ export class AnalysisController {
       });
 
       jobIds.push(result.jobId);
-
-      // Increment usage counter for each file
-      await this.subscription.incrementUsage(req.user.schoolId);
     }
 
     // Log one audit entry for the entire batch
@@ -168,7 +159,7 @@ export class AnalysisController {
   }
 
   @Post('contrastive')
-  @UseGuards(TierGuard, AnalysisThrottleGuard)
+  @UseGuards(AnalysisThrottleGuard)
   @Throttle({ default: { limit: 10, ttl: 300000 } })
   @ApiOperation({ summary: 'Submit two audio files for contrastive analysis (returns job ID)' })
   @ApiConsumes('multipart/form-data')
@@ -208,9 +199,6 @@ export class AnalysisController {
       labelB: dto.labelB,
       l1Language: dto.l1Language,
     });
-
-    // Increment usage counter after successful submission
-    await this.subscription.incrementUsage(req.user.schoolId);
 
     this.audit.log('analysis_run', req.user.userId, req.user.email, {
       targetId: result.jobId,

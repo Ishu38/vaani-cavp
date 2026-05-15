@@ -26,3 +26,13 @@ export default function AboutPage() {
         <div className="tp-info-card">
           <div className="tp-info-card-title">What makes Vaani different</div>
           <ul>
+            <li>Calibrated against <b>published acoustic-phonetic literature</b> for 6 Indian L1 profiles (Bengali, Hindi, Tamil, Telugu, Marathi, Gujarati), not generic Western L2 models.</li>
+            <li>Deterministic acoustic scoring — same audio yields the same band, every time; no LLM in the band-mapping loop.</li>
+            <li>Honest reliability notes: every report flags alignment quality, sample duration, and degraded layers.</li>
+            <li>No long-term storage of your audio; the file is deleted as soon as the report is produced.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}

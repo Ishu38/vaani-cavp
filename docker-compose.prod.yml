@@ -50,10 +50,15 @@ services:
       - FASTAPI_URL=http://engine:8000
       - JWT_SECRET=${JWT_SECRET}
       - ENGINE_API_KEY=${ENGINE_API_KEY}
-      - CORS_ORIGIN=${CORS_ORIGIN:-https://vani.example.com}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://vaaani.in}
       - NODE_ENV=production
       - PORT=3001
       - UPLOAD_DIR=/app/uploads
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-noop}
+      - EMAIL_FROM=${EMAIL_FROM:-Vaani <hello@vaaani.in>}
+      - EMAIL_REPLY_TO=${EMAIL_REPLY_TO:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
     depends_on:
       mongo:
         condition: service_healthy
@@ -85,11 +90,26 @@ services:
       - "8000"
     volumes:
       - ./uploads:/app/uploads
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+      - whisper_cache:/root/.cache/whisper
     environment:
       - ENGINE_API_KEY=${ENGINE_API_KEY}
       - MONGO_URI=mongodb://${MONGO_USER:-vani_admin}:${MONGO_PASS}@mongo:27017/contrastive_voice?authSource=admin
       - CUDA_VISIBLE_DEVICES=0
       - ENVIRONMENT=production
+      - HF_HOME=/root/.cache/huggingface
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface
+      - HF_HUB_ENABLE_HF_TRANSFER=0
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     depends_on:
       mongo:
         condition: service_healthy
@@ -122,3 +142,6 @@ networks:
 volumes:
   mongo_data:
   redis_data:
+  hf_cache:
+  torch_cache:
+  whisper_cache:

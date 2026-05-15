@@ -12,6 +12,7 @@ import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, Roles } from '../auth/roles.guard';
 import { PrivacyService } from './privacy.service';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../email/email.service';
 import { DeletionRequestDto } from './privacy.dto';
 
 @ApiTags('Privacy')
@@ -22,6 +23,7 @@ export class PrivacyController {
   constructor(
     private privacy: PrivacyService,
     private audit: AuditService,
+    private email: EmailService,
   ) {}
 
   @Post('deletion-request')
@@ -33,6 +35,21 @@ export class PrivacyController {
       { userId: req.user.userId, email: req.user.email },
     );
     return { deleted: result };
+  }
+
+  @Post('ielts/delete-my-data')
+  @ApiOperation({
+    summary: 'IELTS adult right-to-deletion (DPDP). Deletes consent records and any audio for the authenticated user.',
+  })
+  async ieltsSelfDelete(@Request() req: any) {
+    const result = await this.privacy.deleteIeltsUserData(req.user.userId, {
+      userId: req.user.userId,
+      email: req.user.email,
+    });
+    this.email
+      .sendDeletionConfirmation(req.user.email, req.user.name || req.user.email, result)
+      .catch(() => {/* fire-and-forget: never let email failure break a deletion request */});
+    return { status: 'ok', deleted: result };
   }
 
   @Get('audit-trail')

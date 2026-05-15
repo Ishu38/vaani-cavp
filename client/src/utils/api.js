@@ -10,7 +10,12 @@ import {
   getStorageEstimate,
 } from "./localDb.js";
 
-const BASE = "/api";
+// Same-origin "/api" is the default — works in dev (Vite proxy) and any
+// deployment where the SPA and gateway share an origin. Set VITE_API_BASE_URL
+// at build time to point the SPA at a separate API host
+// (e.g. "https://api.vaaani.in") for subdomain-split deployments.
+const RAW_BASE = (import.meta.env.VITE_API_BASE_URL || "/api").trim();
+const BASE = RAW_BASE.endsWith("/") ? RAW_BASE.slice(0, -1) : RAW_BASE;
 
 // ── Profile key normalization ────────────────────────────────────────────
 // MongoDB stores camelCase but client components expect snake_case
@@ -87,6 +92,61 @@ export function isAuthenticated() {
   return !!_user;
 }
 
+/** Refresh the locally cached user object from /api/auth/me. Called on app
+ *  boot when a session cookie is present so the SPA picks up newer profile
+ *  fields (age / IELTS centre / registration number) saved server-side
+ *  during a previous report download. Returns the fresh user, or null if
+ *  the session is no longer valid. */
+export async function refreshUser() {
+  try {
+    const fresh = await jsonFetch(`${BASE}/auth/me`);
+    _user = fresh;
+    localStorage.setItem("vp_user", JSON.stringify(fresh));
+    return fresh;
+  } catch {
+    return null;
+  }
+}
+
+/** Patch the candidate profile fields (name/age/ielts_centre_name/
+ *  registration_number, plus phone/dob/nativeLanguage/preparingFor/
+ *  targetBand/address). Empty strings are ignored server-side. Returns
+ *  the updated user; also writes through to the local cache. */
+export async function updateProfile(patch) {
+  const fresh = await jsonFetch(`${BASE}/auth/profile`, {
+    method: "PATCH",
+    body: JSON.stringify(patch || {}),
+  });
+  _user = fresh;
+  localStorage.setItem("vp_user", JSON.stringify(fresh));
+  return fresh;
+}
+
+/** Upload a new avatar image. Server validates png/jpeg/webp ≤ 2MB, pushes
+ *  to R2, persists the URL, and returns the refreshed user. */
+export async function uploadAvatar(file) {
+  const form = new FormData();
+  form.append("avatar", file);
+  const fresh = await formFetch(`${BASE}/auth/avatar`, form);
+  _user = fresh;
+  localStorage.setItem("vp_user", JSON.stringify(fresh));
+  return fresh;
+}
+
+// ── Saved attempts (history) ─────────────────────────────────────────────
+
+export async function listAttempts() {
+  return jsonFetch(`${BASE}/attempts`);
+}
+
+export async function getAttempt(id) {
+  return jsonFetch(`${BASE}/attempts/${encodeURIComponent(id)}`);
+}
+
+export async function deleteAttempt(id) {
+  return jsonFetch(`${BASE}/attempts/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 // ── Fetch helpers ────────────────────────────────────────────────────────
 // credentials: "include" tells the browser to send httpOnly cookies
 
@@ -96,8 +156,49 @@ function getCsrfToken() {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
+export class ApiError extends Error {
+  constructor(message, { status = 0, code = "unknown", original = null, details = null } = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.original = original;
+    // Structured server-error body (parsed JSON). Currently surfaces:
+    //   - 402 quota_exceeded / feature_blocked → { code, plan, used, limit,
+    //     resetsAt, upgradeUrl, message }
+    // Caller checks `err.status === 402 && err.details?.code === "quota_exceeded"`
+    // to render the upgrade modal instead of a generic toast.
+    this.details = details;
+  }
+}
+
+function classifyHttpStatus(status) {
+  if (status === 401) return "auth_expired";
+  if (status === 402) return "payment_required";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  if (status === 408) return "timeout";
+  if (status === 429) return "rate_limited";
+  if (status === 503) return "engine_busy";
+  if (status >= 500 && status < 600) return "engine_down";
+  return "http_error";
+}
+
+async function safeFetch(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (e) {
+    // Network-level failure: TypeError, AbortError, or DNS / offline
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    throw new ApiError(
+      offline ? "You appear to be offline." : "Could not reach the Vaani service.",
+      { status: 0, code: offline ? "offline" : "network", original: e },
+    );
+  }
+}
+
 async function jsonFetch(url, options = {}) {
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     ...options,
     credentials: "include",
     headers: {
@@ -108,17 +209,20 @@ async function jsonFetch(url, options = {}) {
   });
   if (res.status === 401) {
     clearAuth();
-    throw new Error("Session expired — please login again");
+    throw new ApiError("Session expired — please sign in again.", { status: 401, code: "auth_expired" });
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || body.error || res.statusText);
+    throw new ApiError(
+      body.message || body.error || res.statusText,
+      { status: res.status, code: classifyHttpStatus(res.status), details: body || null },
+    );
   }
   return res.json();
 }
 
 async function formFetch(url, formData) {
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -128,11 +232,14 @@ async function formFetch(url, formData) {
   });
   if (res.status === 401) {
     clearAuth();
-    throw new Error("Session expired — please login again");
+    throw new ApiError("Session expired — please sign in again.", { status: 401, code: "auth_expired" });
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || body.error || res.statusText);
+    throw new ApiError(
+      body.message || body.error || res.statusText,
+      { status: res.status, code: classifyHttpStatus(res.status), details: body || null },
+    );
   }
   return res.json();
 }
@@ -140,39 +247,34 @@ async function formFetch(url, formData) {
 // ── Auth endpoints ───────────────────────────────────────────────────────
 
 export async function signup({ name, email, password, role, school, schoolId }) {
-  const res = await fetch(`${BASE}/auth/signup`, {
+  const data = await jsonFetch(`${BASE}/auth/signup`, {
     method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, email, password, role, school, schoolId }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || body.error || "Signup failed");
-  }
-  const data = await res.json();
   setAuth(data.access_token, data.user);
   return data;
 }
 
 export async function login({ email, password }) {
-  const res = await fetch(`${BASE}/auth/login`, {
+  const data = await jsonFetch(`${BASE}/auth/login`, {
     method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || body.error || "Invalid credentials");
-  }
-  const data = await res.json();
   setAuth(data.access_token, data.user);
   return data;
 }
 
 export async function getMe() {
   return jsonFetch(`${BASE}/auth/me`);
+}
+
+export async function signInWithGoogle(credential) {
+  const data = await jsonFetch(`${BASE}/auth/google`, {
+    method: "POST",
+    body: JSON.stringify({ credential }),
+  });
+  setAuth(data.access_token, data.user);
+  return data;
 }
 
 // ── Analysis endpoints (job-based) ───────────────────────────────────────
@@ -246,10 +348,15 @@ export async function waitForJob(jobId, opts = {}) {
     onProgress(status);
 
     if (status.state === "completed") return status;
-    if (status.state === "failed") throw new Error(status.error || "Analysis failed");
+    if (status.state === "failed") {
+      throw new ApiError(status.error || "Analysis failed on the engine.", { status: 0, code: "engine_failed" });
+    }
 
     if (Date.now() - start > timeout) {
-      throw new Error("Analysis timed out");
+      throw new ApiError(
+        "Analysis took longer than expected. Try a shorter recording, or try again in a moment.",
+        { status: 0, code: "timeout" },
+      );
     }
 
     await new Promise((r) => setTimeout(r, interval));
@@ -494,6 +601,234 @@ export async function requestConsent(data) {
 
 export async function requestDeletion(studentSpeakerId) {
   return jsonFetch(`${BASE}/privacy/deletion-request`, { method: 'POST', body: JSON.stringify({ studentSpeakerId }) });
+}
+
+// ── Verification + reset + Google link ──────────────────────────────────
+
+export async function requestPasswordReset(email) {
+  return jsonFetch(`${BASE}/auth/password-reset/request`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function confirmPasswordReset({ email, token, newPassword }) {
+  return jsonFetch(`${BASE}/auth/password-reset/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ email, token, newPassword }),
+  });
+}
+
+export async function verifyEmail({ email, token }) {
+  return jsonFetch(`${BASE}/auth/verify-email`, {
+    method: "POST",
+    body: JSON.stringify({ email, token }),
+  });
+}
+
+export async function resendVerificationEmail() {
+  return jsonFetch(`${BASE}/auth/verify-email/resend`, { method: "POST" });
+}
+
+export async function confirmGoogleLink({ email, token }) {
+  return jsonFetch(`${BASE}/auth/link-google/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ email, token }),
+  });
+}
+
+// ── IELTS self-consent (DPDP) ────────────────────────────────────────────
+// Server-side counterpart to ConsentGate's localStorage write. Without this
+// POST, the gateway returns 403 "Consent required" on every submit even
+// though the SPA thinks consent is given.
+
+export async function recordIeltsConsent(consentTypes) {
+  return jsonFetch(`${BASE}/testprep/consent`, {
+    method: "POST",
+    body: JSON.stringify({
+      consentVersion: "1.0",
+      consentTypes: consentTypes || ["voice_processing", "transcript_storage"],
+    }),
+  });
+}
+
+export async function getIeltsConsentStatus() {
+  return jsonFetch(`${BASE}/testprep/consent/status`);
+}
+
+// ── IELTS / TOEFL test prep endpoints ────────────────────────────────────
+
+/** Current user plan + monthly mock quota usage. Returns shape:
+ *  { plan, planExpired, planExpiresAt, monthly: { used, limit, remaining,
+ *    resetsAt, unlimited }, features: { pdfReports, ... }, upgradeUrl }
+ *  Used by TestFlow to show "X of 3 mocks remaining" before submission and
+ *  to gate the PDF download CTA on free tier.
+ */
+export async function getQuota() {
+  return jsonFetch(`${BASE}/testprep/quota`);
+}
+
+export async function getIELTSPrompts(topic) {
+  const qs = topic ? `?topic=${encodeURIComponent(topic)}` : "";
+  return jsonFetch(`${BASE}/testprep/prompts/ielts${qs}`);
+}
+
+export async function getTOEFLPrompts(taskNumber) {
+  const qs = taskNumber ? `?task_number=${taskNumber}` : "";
+  return jsonFetch(`${BASE}/testprep/prompts/toefl${qs}`);
+}
+
+/**
+ * Submit + poll. The server now enqueues a BullMQ job and returns a
+ * jobId immediately. We poll /testprep/jobs/:id every 2s until the
+ * worker reports completed/failed. Caller can pass `onProgress` to
+ * surface stage messages in the UI ("transcribing…", "scoring…").
+ *
+ * Compared to the previous synchronous flow: HTTP POSTs no longer
+ * fight the 30-180s engine pipeline timeout — the upload+enqueue
+ * returns in <1s, and polling keeps the client in sync without
+ * any open long request that mobile networks tend to drop.
+ */
+export async function analyzeIELTS(file, options = {}) {
+  const form = new FormData();
+  form.append("audio", file);
+  if (options.gender) form.append("gender", options.gender);
+  if (options.l1Language) form.append("l1_language", options.l1Language);
+  if (options.promptId) form.append("prompt_id", options.promptId);
+  const submitted = await formFetch(`${BASE}/testprep/ielts/analyze`, form);
+  return waitForTestPrepJob(submitted.jobId, options.onProgress);
+}
+
+export async function analyzeTOEFL(file, options = {}) {
+  const form = new FormData();
+  form.append("audio", file);
+  if (options.gender) form.append("gender", options.gender);
+  if (options.l1Language) form.append("l1_language", options.l1Language);
+  if (options.taskNumber) form.append("task_number", String(options.taskNumber));
+  if (options.promptId) form.append("prompt_id", options.promptId);
+  const submitted = await formFetch(`${BASE}/testprep/toefl/analyze`, form);
+  return waitForTestPrepJob(submitted.jobId, options.onProgress);
+}
+
+async function waitForTestPrepJob(jobId, onProgress) {
+  const POLL_MS = 2000;
+  // 720s ceiling — engine worker has a 600s timeout for the full neuro-
+  // symbolic pipeline (Praat-heavy 90s audio ~3-4 min), plus headroom
+  // for queue wait + final-poll latency. Vaani's product promise is a
+  // precise, voice-unique profile per submission — we'd rather wait 4
+  // minutes than truncate the analysis. Hitting this ceiling means the
+  // engine genuinely hung; the user retry will land on a fresh job.
+  const TIMEOUT_MS = 720_000;
+  const start = Date.now();
+  while (true) {
+    if (Date.now() - start > TIMEOUT_MS) {
+      throw new ApiError(
+        "Scoring is taking longer than expected. Try again — your audio is queued, the engine may be catching up.",
+        { status: 0, code: "engine_busy" },
+      );
+    }
+    const status = await jsonFetch(`${BASE}/testprep/jobs/${encodeURIComponent(jobId)}`);
+    if (typeof onProgress === "function") onProgress(status);
+    if (status.state === "completed") return status.result;
+    if (status.state === "failed") {
+      throw new ApiError(
+        status.error || "Analysis failed",
+        { status: 0, code: "engine_error" },
+      );
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+}
+
+export async function toeflSectionScore(taskScores) {
+  return jsonFetch(`${BASE}/testprep/toefl/section-score`, {
+    method: "POST",
+    body: JSON.stringify({ task_scores: taskScores }),
+  });
+}
+
+export async function guidanceTopics() {
+  return jsonFetch(`${BASE}/testprep/guidance/topics`);
+}
+
+export async function guidanceNode(nodeId) {
+  return jsonFetch(`${BASE}/testprep/guidance/node/${encodeURIComponent(nodeId)}`);
+}
+
+export async function guidanceAsk(query, context) {
+  return jsonFetch(`${BASE}/testprep/guidance/ask`, {
+    method: "POST",
+    body: JSON.stringify({ query, context: context || null }),
+  });
+}
+
+export function saveLastVaaniResult(result) {
+  try {
+    const payload = {
+      ...result,
+      ts: Date.now(),
+    };
+    localStorage.setItem("vaani_last_result", JSON.stringify(payload));
+  } catch {}
+}
+
+export function loadLastVaaniResult() {
+  try {
+    const raw = localStorage.getItem("vaani_last_result");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const ageSec = parsed.ts ? (Date.now() - parsed.ts) / 1000 : null;
+    return { ...parsed, last_session_age_sec: ageSec };
+  } catch {
+    return null;
+  }
+}
+
+export async function downloadIELTSReport(file, options = {}) {
+  const form = new FormData();
+  form.append("audio", file);
+  if (options.gender) form.append("gender", options.gender);
+  if (options.l1Language) form.append("l1_language", options.l1Language);
+  if (options.ageGroup) form.append("age_group", options.ageGroup);
+  if (options.name) form.append("name", options.name);
+  if (options.age) form.append("age", String(options.age));
+  if (options.centreName) form.append("centre_name", options.centreName);
+  if (options.registrationNumber) form.append("registration_number", options.registrationNumber);
+  if (options.testDate) form.append("test_date", options.testDate);
+  if (options.promptId) form.append("prompt_id", options.promptId);
+
+  // Enqueue and poll — same pattern as analyzeIELTS. Previously this
+  // POST was synchronous and held the connection for the full 60-180s
+  // pipeline, which the Cloudflare tunnel reliably killed at ~100s.
+  const submitted = await formFetch(`${BASE}/testprep/ielts/report`, form);
+  const result = await waitForTestPrepJob(submitted.jobId, options.onProgress);
+  // Worker stored the PDF on disk; fetch it via the dedicated download
+  // route (auth'd by the same job-owner rule as /jobs/:id).
+  const pdfRes = await safeFetch(
+    `${BASE}/testprep/jobs/${encodeURIComponent(submitted.jobId)}/pdf`,
+    { credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() } },
+  );
+  if (!pdfRes.ok) {
+    const body = await pdfRes.json().catch(() => ({}));
+    throw new ApiError(
+      body.message || body.error || pdfRes.statusText,
+      { status: pdfRes.status, code: classifyHttpStatus(pdfRes.status) },
+    );
+  }
+  const disposition = pdfRes.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)/);
+  const filename = match ? match[1] : (result?.filename || `vaani_ielts_${Date.now()}.pdf`);
+  const blob = await pdfRes.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return { filename, band: pdfRes.headers.get("x-vaani-band-overall") || result?.band || "" };
 }
 
 // ── Local storage exports ───────────────────────────────────────────────

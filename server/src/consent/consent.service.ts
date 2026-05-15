@@ -69,4 +69,69 @@ export class ConsentService {
     // At least one granted consent must exist
     return records.some((r) => r.granted);
   }
+
+  /**
+   * IELTS adult flow: self-consent keyed on the authenticated user's id.
+   * Sentinel `schoolId='__ielts_self__'` distinguishes adult-self records
+   * from school-cohort records that the existing helpers operate on.
+   *
+   * Unlike `isAnalysisAllowed`, this is *strict*: it requires an explicit
+   * granted record. There is no backwards-compat fallback because every
+   * paid IELTS candidate must affirmatively consent under DPDP Act 2023.
+   */
+  async isIeltsAnalysisAllowed(userId: string): Promise<boolean> {
+    const record = await this.consentModel
+      .findOne({ studentSpeakerId: userId, schoolId: IELTS_SELF_SCHOOL_ID, granted: true })
+      .exec();
+    return !!record && !record.revokedAt;
+  }
+
+  async recordIeltsConsent(opts: {
+    userId: string;
+    email: string;
+    name: string;
+    consentTypes?: ConsentType[];
+    ipAddress?: string;
+    userAgent?: string;
+    consentVersion?: string;
+  }): Promise<ConsentRecord> {
+    return this.consentModel.create({
+      studentSpeakerId: opts.userId,
+      parentEmail: opts.email,
+      parentName: opts.name,
+      consentTypes:
+        opts.consentTypes && opts.consentTypes.length > 0
+          ? opts.consentTypes
+          : [
+              ConsentType.AUDIO_RECORDING,
+              ConsentType.VOICE_ANALYSIS,
+              ConsentType.DATA_STORAGE,
+            ],
+      granted: true,
+      grantedAt: new Date(),
+      ipAddress: opts.ipAddress,
+      userAgent: opts.userAgent,
+      consentVersion: opts.consentVersion || '1.0',
+      schoolId: IELTS_SELF_SCHOOL_ID,
+      requestedBy: opts.userId,
+    });
+  }
+
+  async revokeIeltsConsent(userId: string): Promise<void> {
+    await this.consentModel
+      .updateMany(
+        { studentSpeakerId: userId, schoolId: IELTS_SELF_SCHOOL_ID },
+        { granted: false, revokedAt: new Date() },
+      )
+      .exec();
+  }
+
+  async getIeltsConsentStatus(userId: string): Promise<ConsentRecord | null> {
+    return this.consentModel
+      .findOne({ studentSpeakerId: userId, schoolId: IELTS_SELF_SCHOOL_ID })
+      .sort({ createdAt: -1 })
+      .exec();
+  }
 }
+
+export const IELTS_SELF_SCHOOL_ID = '__ielts_self__';

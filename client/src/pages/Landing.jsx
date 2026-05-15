@@ -226,3 +226,247 @@ function Hero({ onStartIELTS, onStartTOEFL }) {
             </div>
           </div>
 
+          {/* Persistent academic attribution — Svarah / AI4Bharat / IIT Madras.
+              Sits directly under the sample card so anyone reading the demo
+              numbers sees the calibration provenance in the same glance. */}
+          <div className="l26-hero-corpus" aria-label="Calibration data attribution">
+            <div className="l26-hero-corpus-mark" aria-hidden="true">स्व</div>
+            <div>
+              Calibration data: <b>Svarah corpus</b> —{" "}
+              <a href="https://ai4bharat.iitm.ac.in/" target="_blank" rel="noopener noreferrer">AI4Bharat</a>,
+              IIT Madras. Peer-reviewed, open-access Indian-accented English speech
+              dataset (~9.6 hr, 117 speakers, 65 districts).
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── How it works ─────────────────────────────────────────────────────────
+function HowItWorks() {
+  const root = useRef(null);
+  useGSAP(
+    () => {
+      gsap.from(".l26-step", {
+        y: 32, opacity: 0, duration: 0.6, ease: "power2.out", stagger: 0.1,
+        scrollTrigger: { trigger: root.current, start: "top 80%" },
+      });
+    },
+    { scope: root }
+  );
+
+  const steps = [
+    { n: 1, t: "Pick a task", d: "Choose an IELTS Part 2 cue card or a TOEFL speaking task." },
+    { n: 2, t: "Record your response", d: "Prep timer runs automatically; live captions appear as you speak." },
+    { n: 3, t: "Get a measured profile", d: "Vaani returns a Pronunciation band plus the measured acoustic features that produced it — F1/F2, F0, voice quality, rhythm, CIF, top phoneme substitutions with timestamps." },
+    { n: 4, t: "Act on it", d: "Each feedback line points to a specific articulatory adjustment for the L1 transfer pattern the engine heard." },
+  ];
+
+  return (
+    <section className="l26-section" id="how" ref={root}>
+      <div className="l26-section-eyebrow">How it works</div>
+      <h2 className="l26-h2">Four steps, one measured profile.</h2>
+      <p className="l26-section-sub">
+        Recording flow on the left; what the engine returns on the right. Every output traces back to a
+        feature in the audio.
+      </p>
+      <div className="l26-steps">
+        {steps.map((s) => (
+          <div key={s.n} className="l26-step">
+            <div className="l26-step-num">{String(s.n).padStart(2, "0")}</div>
+            <div className="l26-step-title">{s.t}</div>
+            <div className="l26-step-desc">{s.d}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ── 18-layer pipeline ───────────────────────────────────────────────────
+function Pipeline() {
+  const root = useRef(null);
+  useGSAP(
+    () => {
+      gsap.from(".l26-pipe-card", {
+        y: 36, opacity: 0, duration: 0.65, ease: "power2.out", stagger: 0.08,
+        scrollTrigger: { trigger: root.current, start: "top 80%" },
+      });
+    },
+    { scope: root }
+  );
+
+  const layers = [
+    { tag: "Layer 1", t: "Whisper transcription", li: ["Word-level timestamps + per-word confidence.", "Language detection with probability score."] },
+    { tag: "Layer 2", t: "Praat acoustic measurement", li: ["F1–F4 formants + vowel-space area (Boersma 2001+).", "Per-speaker pitch track, HNR, jitter, shimmer.", "Spectral tilt, CPP, voice quality profiling."] },
+    { tag: "Layer 3", t: "Prosodic profile", li: ["Rhythm class (syllable-timed vs stress-timed).", "Speech rate, pause-to-speech ratio.", "Intonation contour on the pitch track."] },
+    { tag: "Layer 4", t: "Connected speech & fluency", li: ["Assimilation, elision, linking detection.", "Hesitation markers, filled-pause ratio.", "Fluency score from boundary clarity + coarticulation."] },
+    { tag: "Layer 5", t: "Voice quality", li: ["Breathiness, creakiness, nasality indices.", "Vocal register classification (chest/head/falsetto).", "Clinical flags when metrics cross validated thresholds."] },
+    { tag: "Layer 6", t: "NLP & grammar analysis", li: ["spaCy constituency-tree parsing with morpheme counting.", "TTR, POS variety, subordinate-clause ratio.", "MLU + verb-tense variety + dep-relation variety."] },
+    { tag: "Layer 7", t: "L1 catalogue match · CIF", li: ["Acoustic markers matched against 6 calibrated L1 profiles.", "Contrastive Interference Function — Mahalanobis distance to L1/L2 attractors.", "Syntactic L1 transfer detection: article-drop, SOV, pro-drop, copula-drop."] },
+    { tag: "Layer 8", t: "Abductive cross-validation", li: ["Cross-checks acoustic + syntactic + grammar evidence.", "When 2+ modalities agree → confidence boosted.", "When they conflict → score adjusted, discrepancy flagged."] },
+  ];
+
+  return (
+    <section className="l26-section--alt">
+      <div className="l26-section-inner l26-section" ref={root} style={{ padding: "96px 0" }}>
+        <div className="l26-section-eyebrow">18-layer acoustic pipeline</div>
+        <h2 className="l26-h2">Every band traces back to a measurement.</h2>
+        <p className="l26-section-sub">
+          Each layer below is a signal extracted from your audio with peer-reviewed phonetic
+          tooling — Praat (Boersma 2001+), Whisper, spaCy, and a CIF model calibrated against
+          published L2 phonetics literature. The band is computed deterministically from these
+          measurements: same audio, same band, every time. There is no LLM in the band-mapping
+          loop, nothing is approximated, and the report shows you which measurements drove the score.
+        </p>
+        <div className="l26-pipeline">
+          {layers.map((L) => (
+            <div key={L.tag} className="l26-pipe-card">
+              <div className="l26-pipe-tag">{L.tag}</div>
+              <div className="l26-pipe-title">{L.t}</div>
+              <ul>{L.li.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Pronunciation band table ─────────────────────────────────────────────
+function BandsSection() {
+  const root = useRef(null);
+  useGSAP(
+    () => {
+      gsap.from(".l26-bands-row", {
+        x: -16, opacity: 0, duration: 0.5, ease: "power2.out", stagger: 0.05,
+        scrollTrigger: { trigger: root.current, start: "top 80%" },
+      });
+    },
+    { scope: root }
+  );
+
+  const rows = [
+    ["9.0", "Near-native pronunciation; phoneme realisation, prosodic timing, and voice quality all consistent with educated native L2-English."],
+    ["7.5 – 8.5", "Strong pronunciation; occasional L1-substrate features audible but never disrupt intelligibility."],
+    ["6.5 – 7.0", "Competent pronunciation; noticeable L1 transfer (formant deviation, rhythm shifts, prosodic carry-over) without affecting comprehension."],
+    ["5.0 – 6.0", "L1 transfer regularly affects pronunciation; some phoneme substitutions and rhythm shifts require listener effort."],
+    ["≤ 4.5", "Pronunciation patterns interfere with intelligibility on most utterances."],
+  ];
+
+  return (
+    <section className="l26-section" id="bands" ref={root}>
+      <div className="l26-section-eyebrow">Pronunciation band</div>
+      <h2 className="l26-h2">What the band actually means.</h2>
+      <p className="l26-section-sub">
+        Vaani scores the IELTS Speaking <b>Pronunciation</b> criterion only — the descriptor most tightly
+        grounded in measurable acoustic properties. Fluency &amp; Coherence, Lexical Resource, and Grammatical
+        Range are not produced by Vaani; they require a human examiner. The descriptors below are interpretive
+        guides for the Pronunciation band.
+      </p>
+      <div className="l26-bands">
+        {rows.map(([b, d]) => (
+          <div key={b} className="l26-bands-row">
+            <div className="l26-bands-band">{b}</div>
+            <div className="l26-bands-desc">{d}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ── FAQ ──────────────────────────────────────────────────────────────────
+function FAQSection() {
+  const root = useRef(null);
+  useGSAP(
+    () => {
+      gsap.from(".l26-faq-item", {
+        y: 16, opacity: 0, duration: 0.5, ease: "power2.out", stagger: 0.05,
+        scrollTrigger: { trigger: root.current, start: "top 82%" },
+      });
+    },
+    { scope: root }
+  );
+
+  const faqs = [
+    { q: "What does Vaani actually score, and what does it not score?", a: "Vaani scores the IELTS Speaking Pronunciation criterion (or the TOEFL Delivery criterion) — the descriptor that maps directly to measurable acoustic properties. Fluency & Coherence, Lexical Resource, and Grammatical Range are NOT scored by Vaani; they require a human examiner to assess discourse coherence, vocabulary range in context, and grammatical accuracy in production. We refuse to emit bands for those criteria because honest framing matters more than feature parity." },
+    { q: "Why L1-aware Pronunciation scoring matters for an Indian candidate", a: "Generic pronunciation scorers mark phoneme deviations as errors without telling you why they happened. For a Hindi speaker, retroflex /ʈ/ bleeding into English /t/ is a documented L1 transfer pattern with a specific articulatory fix. For a Bengali speaker, /θ/ slipping to /t/ has a different articulatory cause. Vaani measures your voice with Praat (formants F1–F4, pitch with two-pass per-speaker tracking, jitter, shimmer, HNR) and reads those measurements against L1 transfer attractors calibrated for your declared L1, so the feedback names the substitution AND points at the articulatory adjustment that closes it." },
+    { q: "Is the Vaani band an official IELTS or TOEFL score?", a: "No. Vaani is an automated diagnostic estimate to help you prepare. Only an examined IELTS or TOEFL sitting yields an official score. We are not affiliated with the British Council, IDP, Cambridge, or ETS." },
+    { q: "Which L1s are supported, and how were the attractors calibrated?", a: "Bengali and Hindi. Both substrates are empirically calibrated against the Svarah corpus — AI4Bharat's peer-reviewed, open-access Indian-accented English dataset, hosted at IIT Madras (~9.6 hr, 117 speakers, 65 districts). Vaani's policy is simple: an L1 appears on the production engine only after its CIF attractor is fit on real Indian speech data. Bhojpuri, Odia, Tamil, and Telugu calibration is the next milestone on the roadmap; until those fits are validated against Svarah, the engine will not score against them. We would rather decline a request than produce a band a phonetician would dispute." },
+    { q: "How confident is the Pronunciation band on any given clip?", a: "Every report carries explicit reliability flags. The Pronunciation band is computed from 7 weighted components (speech rate, pause structure, hesitation rate, formant position, prosody distance to L2, CIF strength, and alignment quality). When forced alignment is unavailable, the report flags it. Sample duration below 60s emits a warning. We do not produce a band without these caveats." },
+    { q: "How accurate is the Pronunciation band against examiner ground truth?", a: "We have not yet published an examiner-agreement number and will not put one on this page until the validation cohort is graded. The plan: 30 Bengali + 30 Hindi clips from Svarah, scored independently by two trained IELTS examiners on the Pronunciation criterion only; we will publish Pearson r, MAE in band units, and inter-rater κ. Until then we describe Vaani as an instrument that measures your voice honestly — not as a substitute for examiner judgement on the Pronunciation criterion." },
+    { q: "Why does an analysis take ~55–90 seconds?", a: "Vaani runs an 18-layer acoustic pipeline on every submission: Whisper transcription with word-level timestamps, Praat-based formant + pitch + voice-quality extraction, rhythm metrics, prosodic profiling, connected-speech detection, syntactic L1 transfer analysis, and the Contrastive Interference Function combining all of the above against your L1's calibrated attractor. Most of the time goes into Praat formant extraction (the same software used in phonetics labs worldwide). The engine processes one submission at a time so concurrent submissions queue." },
+    { q: "Where does my recording go?", a: "Audio is captured in your browser and uploaded only when you submit. The engine analyses it on disk in a worker queue, generates the report, and the audio file is deleted in the same queue handler immediately after the report is produced. We do not retain audio long-term and do not train models on user submissions without separate explicit consent." },
+    { q: "Do I need a signup to try Vaani?", a: "Yes — sign in with Google before recording. We tie every attempt to your account so you can see your Pronunciation-band history, compare mocks over time, and download PDF reports. Sign-in is one click; no separate password." },
+    { q: "Can coaching institutes deploy Vaani for their students?", a: "Yes — we are open to coaching-centre pilots. The clean way to think about Vaani in your workflow: it produces a measured Pronunciation band and a voice profile your trainers can use as one input alongside their own examiner judgement on Fluency, Lexical Resource, and Grammatical Range. Reach out via the contact page if that division of labour makes sense for your cohort." },
+  ];
+
+  return (
+    <section className="l26-section--alt">
+      <div className="l26-section-inner l26-section" ref={root} style={{ padding: "96px 0" }}>
+        <div className="l26-section-eyebrow">FAQ</div>
+        <h2 className="l26-h2">Questions worth asking before you trust a number.</h2>
+        <div className="l26-faq">
+          {faqs.map((f, i) => (
+            <details key={i} className="l26-faq-item">
+              <summary className="l26-faq-q">{f.q}</summary>
+              <p className="l26-faq-a">{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Final CTA ────────────────────────────────────────────────────────────
+function CTAStrip({ onStartIELTS }) {
+  const root = useRef(null);
+  useGSAP(
+    () => {
+      gsap.from(".l26-cta-strip", {
+        y: 30, opacity: 0, duration: 0.7, ease: "power2.out",
+        scrollTrigger: { trigger: root.current, start: "top 85%" },
+      });
+    },
+    { scope: root }
+  );
+  return (
+    <section className="l26-section" ref={root}>
+      <div className="l26-cta-strip">
+        <div className="l26-cta-strip-text">
+          <h3>Record a 60-second IELTS Part 2 response and see your measured Pronunciation band.</h3>
+          <p>One clip. Real Praat measurements. Honest disclosure of what the engine knows and what it doesn't.</p>
+        </div>
+        <button className="l26-btn l26-btn--primary" onClick={onStartIELTS}>Start IELTS mock</button>
+      </div>
+    </section>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────
+export default function Landing() {
+  const navigate = useNavigate();
+  const wrapRef = useRef(null);
+  // The .landing-2026 theme is now applied permanently from PublicLayout
+  // so the cream + teal + saffron palette spans every public surface
+  // (footer, sign-in modal, Pricing, Contact, About) — no per-page
+  // mount/unmount needed here.
+
+  return (
+    <div ref={wrapRef}>
+      <Hero
+        onStartIELTS={() => navigate("/practice/ielts")}
+        onStartTOEFL={() => navigate("/practice/toefl")}
+      />
+      <HowItWorks />
+      <Pipeline />
+      <BandsSection />
+      <FAQSection />
+      <CTAStrip onStartIELTS={() => navigate("/practice/ielts")} />
+    </div>
+  );
+}
