@@ -277,6 +277,24 @@ export async function signInWithGoogle(credential) {
   return data;
 }
 
+// ── Phone OTP auth ─────────────────────────────────────────────────────
+
+export async function sendPhoneOtp(phone) {
+  return jsonFetch(`${BASE}/auth/phone/send`, {
+    method: "POST",
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export async function verifyPhoneOtp(phone, otp) {
+  const data = await jsonFetch(`${BASE}/auth/phone/verify`, {
+    method: "POST",
+    body: JSON.stringify({ phone, otp }),
+  });
+  setAuth(data.access_token, data.user);
+  return data;
+}
+
 // ── Analysis endpoints (job-based) ───────────────────────────────────────
 
 export async function submitAnalysis(file, options = {}) {

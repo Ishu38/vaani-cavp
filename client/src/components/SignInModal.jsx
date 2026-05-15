@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { signInWithGoogle, login as loginEmail, signup as signupEmail, requestPasswordReset } from "../utils/api.js";
+import { signInWithGoogle, login as loginEmail, signup as signupEmail, requestPasswordReset, sendPhoneOtp, verifyPhoneOtp } from "../utils/api.js";
 
 const GSI_SRC = "https://accounts.google.com/gsi/client";
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || "";
@@ -45,6 +45,13 @@ export default function SignInModal({ open, reason, onClose, onSuccess }) {
   const [emailError, setEmailError] = useState(null);
   const [resetSent, setResetSent] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+  // Phone OTP
+  const [phoneMode, setPhoneMode] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneError, setPhoneError] = useState(null);
 
   const handleGoogleCredential = useCallback(async (credential) => {
     setStatus("signing");
@@ -329,6 +336,53 @@ export default function SignInModal({ open, reason, onClose, onSuccess }) {
             </div>
           )}
         </form>
+
+        <div className="sim-divider"><span>or use phone</span></div>
+
+        {!phoneMode ? (
+          <button type="button" className="sim-btn sim-btn--outline" onClick={() => setPhoneMode(true)} style={{ width: "100%", marginBottom: 8 }}>
+            📱 Sign in with phone
+          </button>
+        ) : !otpSent ? (
+          <form className="sim-email-form" onSubmit={async (e) => {
+            e.preventDefault();
+            setPhoneBusy(true); setPhoneError(null);
+            try {
+              await sendPhoneOtp(phone.replace(/\s/g, ''));
+              setOtpSent(true);
+            } catch (err) {
+              setPhoneError(err?.message || "Could not send OTP");
+            } finally { setPhoneBusy(false); }
+          }}>
+            <input type="tel" className="sim-input" placeholder="10-digit mobile number" value={phone}
+              onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, '').slice(0,10))} required />
+            {phoneError && <div className="sim-error" style={{fontSize:12}}>{phoneError}</div>}
+            <button type="submit" className="sim-btn sim-btn--primary" disabled={phoneBusy || phone.length !== 10} style={{width:"100%",marginTop:8}}>
+              {phoneBusy ? "Sending OTP…" : "Send OTP"}
+            </button>
+            <button type="button" className="sim-forgot-link" onClick={() => setPhoneMode(false)} style={{marginTop:4}}>← Back</button>
+          </form>
+        ) : (
+          <form className="sim-email-form" onSubmit={async (e) => {
+            e.preventDefault();
+            setPhoneBusy(true); setPhoneError(null);
+            try {
+              const data = await verifyPhoneOtp(phone, otp);
+              if (onSuccess) onSuccess(data.user);
+            } catch (err) {
+              setPhoneError(err?.message || "Invalid OTP");
+            } finally { setPhoneBusy(false); }
+          }}>
+            <p style={{fontSize:13,color:"#666",margin:"0 0 8px"}}>OTP sent to +91 {phone}. Enter the 6-digit code:</p>
+            <input type="text" className="sim-input" placeholder="000000" value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, '').slice(0,6))} maxLength={6} required />
+            {phoneError && <div className="sim-error" style={{fontSize:12}}>{phoneError}</div>}
+            <button type="submit" className="sim-btn sim-btn--primary" disabled={phoneBusy || otp.length !== 6} style={{width:"100%",marginTop:8}}>
+              {phoneBusy ? "Verifying…" : "Verify & Sign In"}
+            </button>
+            <button type="button" className="sim-forgot-link" onClick={() => { setOtpSent(false); setOtp(""); setPhoneError(null); }} style={{marginTop:4}}>← Change number</button>
+          </form>
+        )}
 
         <div className="sim-legal">
           By continuing, you agree to Vaani's{" "}

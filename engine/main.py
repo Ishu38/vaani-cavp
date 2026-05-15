@@ -945,8 +945,10 @@ async def health():
     # Pipeline queue: how many callers are waiting for the semaphore
     queue_depth = 0
     busy_sec = 0.0
+    waiting = 0
     if _pipeline_sem is not None:
         queue_depth = max(0, PIPELINE_CONCURRENCY - _pipeline_sem._value)
+        waiting = len(getattr(_pipeline_sem, '_waiters', [])) if hasattr(_pipeline_sem, '_waiters') else 0
         if _pipeline_busy_since > 0:
             busy_sec = time.monotonic() - _pipeline_busy_since
 
@@ -960,6 +962,7 @@ async def health():
         "pipeline": {
             "max_concurrency": PIPELINE_CONCURRENCY,
             "queue_depth": queue_depth,
+            "waiting": waiting,
             "busy_sec": round(busy_sec, 1),
             "analysis_timeout_s": ANALYSIS_TIMEOUT,
             "stuck": busy_sec > 60,
